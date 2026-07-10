@@ -89,6 +89,16 @@ class QdrantVectorIndex(VectorIndex):
             for point in response.points
         ]
 
+    async def fetch(self, *, repo_id: str, ids: list[str]) -> list[SearchResult]:
+        """Retrieve points by id (score 0.0) — used to materialize chunks that a
+        non-vector channel (e.g. symbol lookup) surfaced."""
+        if not ids:
+            return []
+        points = await self._client.retrieve(
+            collection_name=self._collection, ids=list(ids), with_payload=True
+        )
+        return [SearchResult(id=str(p.id), score=0.0, payload=p.payload or {}) for p in points]
+
     async def delete(self, *, repo_id: str, ids: list[str]) -> None:
         if not ids:
             return

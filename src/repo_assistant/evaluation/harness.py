@@ -23,7 +23,7 @@ from repo_assistant.evaluation.models import (
 )
 from repo_assistant.reasoning import generate_answer
 from repo_assistant.reasoning.service import Answer
-from repo_assistant.retrieval import retrieve
+from repo_assistant.retrieval import hybrid_retrieve
 
 logger = get_logger(__name__)
 
@@ -92,7 +92,9 @@ async def _run_question(
     )
 
 
-async def run_dataset(dataset: DatasetSpec, runtime: Runtime) -> EvalReport:
+async def run_dataset(
+    dataset: DatasetSpec, runtime: Runtime, *, use_symbols: bool = True
+) -> EvalReport:
     resolved = await resolve_indexed_repo(runtime, dataset.repo_url)
     embedder, llm = runtime.embedder(), runtime.llm()
     report = EvalReport(dataset=resolved.url, repo_url=dataset.repo_url)
@@ -100,13 +102,17 @@ async def run_dataset(dataset: DatasetSpec, runtime: Runtime) -> EvalReport:
     for spec in dataset.questions:
         # One retrieval at full depth: metrics score the ranked list, generation
         # uses the top slice (no double embedding of the query).
-        retrieved = await retrieve(
+        retrieved = await hybrid_retrieve(
             str(resolved.repo_id),
+            str(resolved.snapshot_id),
             spec.question,
             embedder=embedder,
             vector_index=runtime.vector_index,
+            session_factory=runtime.session_factory,
+            commit=resolved.commit_sha,
             limit=_RETRIEVE_K,
-            filters={"commit": resolved.commit_sha},
+            dense_k=_RETRIEVE_K,
+            use_symbols=use_symbols,
         )
         ranked = [RankedChunk(c.path, c.start_line, c.end_line) for c in retrieved]
         ranking = _ranking_metrics(spec, ranked)

@@ -52,6 +52,7 @@ def build_runtime(settings: Settings | None = None) -> Runtime:
 @dataclass(frozen=True, slots=True)
 class ResolvedRepo:
     repo_id: uuid.UUID
+    snapshot_id: uuid.UUID
     url: str
     commit_sha: str
 
@@ -65,7 +66,12 @@ async def resolve_indexed_repo(runtime: Runtime, identifier: str) -> ResolvedRep
         snapshot = await repo.get_active_snapshot(session, repo_row.id)
         if snapshot is None:
             raise NotFoundError(f"{repo_row.url} has no indexed snapshot yet. Run `ra index`.")
-        return ResolvedRepo(repo_id=repo_row.id, url=repo_row.url, commit_sha=snapshot.commit_sha)
+        return ResolvedRepo(
+            repo_id=repo_row.id,
+            snapshot_id=snapshot.id,
+            url=repo_row.url,
+            commit_sha=snapshot.commit_sha,
+        )
 
 
 async def _find_repo(session: AsyncSession, identifier: str) -> Repo | None:

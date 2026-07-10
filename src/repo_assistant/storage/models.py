@@ -1,0 +1,139 @@
+import uuid
+from datetime import datetime
+
+from sqlalchemy import ForeignKey, Index, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.sql import func
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+def _uuid_pk() -> Mapped[uuid.UUID]:
+    return mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+
+class Repo(Base):
+    """A registered GitHub repository. Status: one of the ingestion state-machine values
+    in docs/ARCHITECTURE.md §4 (PENDING/CLONING/.../READY/FAILED)."""
+
+    __tablename__ = "repos"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    url: Mapped[str] = mapped_column(String, unique=True)
+    provider: Mapped[str] = mapped_column(String, default="github")
+    default_ref: Mapped[str] = mapped_column(String, default="main")
+    visibility: Mapped[str] = mapped_column(String, default="public")
+    status: Mapped[str] = mapped_column(String, default="pending")
+    active_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("snapshots.id", use_alter=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Snapshot(Base):
+    """A single indexed commit of a repo. Every chunk/symbol/edge/summary row is
+    scoped to one snapshot (see docs/adr/0009-multitenancy-and-versioning.md)."""
+
+    __tablename__ = "snapshots"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    repo_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("repos.id"))
+    commit_sha: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, default="pending")
+    stats: Mapped[dict] = mapped_column(JSONB, default=dict)
+    indexed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class File(Base):
+    """A single file within a snapshot."""
+
+    __tablename__ = "files"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("snapshots.id"))
+    path: Mapped[str] = mapped_column(String)
+    language: Mapped[str | None] = mapped_column(String, nullable=True)
+    size_bytes: Mapped[int] = mapped_column(default=0)
+    content_hash: Mapped[str] = mapped_column(String)
+
+
+class Symbol(Base):
+    """A named definition extracted from a file (the symbol-retrieval channel and,
+    later, code-graph nodes). Scoped to a snapshot."""
+
+    __tablename__ = "symbols"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("snapshots.id"))
+    file_path: Mapped[str] = mapped_column(String)
+    name: Mapped[str] = mapped_column(String)
+    qualified_name: Mapped[str] = mapped_column(String)
+    kind: Mapped[str] = mapped_column(String)
+    start_line: Mapped[int] = mapped_column(Integer)
+    end_line: Mapped[int] = mapped_column(Integer)
+    signature: Mapped[str] = mapped_column(Text)
+    docstring: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parent: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    __table_args__ = (
+        Index("ix_symbols_snapshot", "snapshot_id"),
+        Index("ix_symbols_snapshot_name", "snapshot_id", "name"),
+    )
+
+
+class Chunk(Base):
+    """Bookkeeping for a retrieval unit. ``id`` is also the Qdrant point id, so the
+    vector store and relational metadata stay joined (docs/ARCHITECTURE.md §7)."""
+
+    __tablename__ = "chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("snapshots.id"))
+    file_path: Mapped[str] = mapped_column(String)
+    language: Mapped[str | None] = mapped_column(String, nullable=True)
+    category: Mapped[str] = mapped_column(String)
+    symbol: Mapped[str | None] = mapped_column(String, nullable=True)
+    start_line: Mapped[int] = mapped_column(Integer)
+    end_line: Mapped[int] = mapped_column(Integer)
+    content_hash: Mapped[str] = mapped_column(String)
+    chunk_index: Mapped[int] = mapped_column(Integer)
+
+    __table_args__ = (Index("ix_chunks_snapshot", "snapshot_id"),)
+
+
+class EmbeddingCache(Base):
+    """Content-addressed embedding cache (docs/adr/0003-embedding-strategy.md).
+
+    Keyed by (model, dimensions, content_hash) so re-indexing unchanged content
+    never re-embeds — the primary defense against indexing-cost blowup (RISKS #1).
+    """
+
+    __tablename__ = "embedding_cache"
+
+    content_hash: Mapped[str] = mapped_column(String, primary_key=True)
+    model: Mapped[str] = mapped_column(String, primary_key=True)
+    dimensions: Mapped[int] = mapped_column(Integer, primary_key=True)
+    vector: Mapped[list] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Job(Base):
+    """A background pipeline job (ingestion, incremental update, enrichment...).
+    Stage/state form the resumable checkpointed state machine (docs/adr/0008-job-queue.md)."""
+
+    __tablename__ = "jobs"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    repo_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("repos.id"))
+    job_type: Mapped[str] = mapped_column(String)
+    stage: Mapped[str] = mapped_column(String, default="pending")
+    state: Mapped[str] = mapped_column(String, default="queued")
+    progress: Mapped[dict] = mapped_column(JSONB, default=dict)
+    checkpoints: Mapped[dict] = mapped_column(JSONB, default=dict)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())

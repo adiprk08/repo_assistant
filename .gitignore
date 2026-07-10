@@ -17,9 +17,10 @@ htmlcov/
 .env.*
 !.env.example
 
-# Data / runtime artifacts
-data/
-storage/
+# Data / runtime artifacts (anchored to repo root so they don't match the
+# src/repo_assistant/storage package)
+/data/
+/storage/
 *.db
 *.sqlite3
 logs/

@@ -6,8 +6,9 @@ import typer
 
 from repo_assistant import __version__
 from repo_assistant.core.errors import NotFoundError, ProviderError
-from repo_assistant.reasoning import answer_question
+from repo_assistant.reasoning import generate_answer
 from repo_assistant.reasoning.service import Answer
+from repo_assistant.retrieval import hybrid_retrieve
 
 app = typer.Typer(
     name="ra",
@@ -42,6 +43,9 @@ def chat(
 @app.command()
 def eval(
     datasets_dir: str = typer.Option("evals/datasets", "--datasets", help="Golden dataset dir."),
+    dense_only: bool = typer.Option(
+        False, "--dense-only", help="Ablation: dense channel only (disable the symbol channel)."
+    ),
 ) -> None:
     """Run the golden evaluation datasets and record a baseline report."""
     from pathlib import Path
@@ -49,7 +53,7 @@ def eval(
     dataset_paths = sorted(Path(datasets_dir).glob("*.yaml"))
     if not dataset_paths:
         raise typer.Exit(code=_fail(f"No datasets found in {datasets_dir}"))
-    asyncio.run(_eval(dataset_paths))
+    asyncio.run(_eval(dataset_paths, use_symbols=not dense_only))
 
 
 async def _index(github_url: str, ref: str | None) -> None:
@@ -105,14 +109,16 @@ async def _chat(identifier: str) -> None:
                 typer.echo("Bye.")
                 break
             try:
-                answer = await answer_question(
+                retrieved = await hybrid_retrieve(
                     str(resolved.repo_id),
+                    str(resolved.snapshot_id),
                     question,
                     embedder=embedder,
                     vector_index=runtime.vector_index,
-                    llm=llm,
-                    filters={"commit": resolved.commit_sha},
+                    session_factory=runtime.session_factory,
+                    commit=resolved.commit_sha,
                 )
+                answer = await generate_answer(question, retrieved, llm=llm)
             except ProviderError as exc:
                 typer.secho(f"  provider error: {exc}", fg=typer.colors.RED)
                 continue
@@ -121,7 +127,7 @@ async def _chat(identifier: str) -> None:
         await runtime.aclose()
 
 
-async def _eval(dataset_paths: list) -> None:
+async def _eval(dataset_paths: list, *, use_symbols: bool) -> None:
     from pathlib import Path
 
     from repo_assistant.cli.runtime import build_runtime
@@ -135,7 +141,7 @@ async def _eval(dataset_paths: list) -> None:
             dataset = DatasetSpec.from_yaml(path)
             typer.echo(f"Evaluating {path.stem} ({len(dataset.questions)} questions) ...")
             try:
-                reports.append(await run_dataset(dataset, runtime))
+                reports.append(await run_dataset(dataset, runtime, use_symbols=use_symbols))
             except (NotFoundError, ProviderError) as exc:
                 raise typer.Exit(code=_fail(str(exc))) from exc
 
@@ -143,6 +149,7 @@ async def _eval(dataset_paths: list) -> None:
             "generation_model": runtime.settings.generation_model,
             "embedding_model": runtime.settings.embedding_model,
             "embedding_dimensions": runtime.settings.embedding_dimensions,
+            "retrieval": "hybrid(dense+symbol)" if use_symbols else "dense-only",
         }
         report_path = write_report(reports, config, Path("evals/reports"))
     finally:

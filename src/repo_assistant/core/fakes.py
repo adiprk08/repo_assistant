@@ -99,6 +99,14 @@ class FakeVectorIndex(VectorIndex):
         scored.sort(key=lambda r: r.score, reverse=True)
         return scored[:limit]
 
+    async def fetch(self, *, repo_id: str, ids: list[str]) -> list[SearchResult]:
+        points = self._points.get(repo_id, {})
+        return [
+            SearchResult(id=pid, score=0.0, payload=points[pid].payload)
+            for pid in ids
+            if pid in points
+        ]
+
     async def delete(self, *, repo_id: str, ids: list[str]) -> None:
         for point_id in ids:
             self._points.get(repo_id, {}).pop(point_id, None)
