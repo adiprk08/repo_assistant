@@ -20,12 +20,14 @@ from repo_assistant.chunking.text import chunk_fallback, chunk_markdown
 from repo_assistant.core.interfaces import Embedder, VectorIndex, VectorPoint
 from repo_assistant.core.logging import get_logger
 from repo_assistant.core.sparse import text_to_sparse
+from repo_assistant.graph.extract import SymbolContext, extract_edges
 from repo_assistant.ingestion import clone, scan
 from repo_assistant.ingestion.models import Acquisition, FileCategory, ScannedFile
 from repo_assistant.parsing import parse_file
 from repo_assistant.parsing.models import ParsedFile
 from repo_assistant.storage import repositories as repo
 from repo_assistant.storage.db import make_session_factory
+from repo_assistant.storage.models import Edge as EdgeModel
 from repo_assistant.storage.models import Symbol as SymbolRow
 
 logger = get_logger(__name__)
@@ -60,11 +62,12 @@ def _chunks_for(scanned: ScannedFile, source: bytes) -> tuple[list[Chunk], Parse
 
 async def _build_units(
     acquisition: Acquisition, scanned_files: list[ScannedFile]
-) -> tuple[list[Chunk], list[dict]]:
-    """Chunk every file and collect symbol rows. Returns (chunks, symbol_dicts)."""
+) -> tuple[list[Chunk], list[dict], list[SymbolContext]]:
+    """Chunk every file; collect symbol rows and symbol contexts (for edges)."""
     root = Path(acquisition.root_path)
     all_chunks: list[Chunk] = []
     symbol_rows: list[dict] = []
+    contexts: list[SymbolContext] = []
     for scanned in scanned_files:
         try:
             source = (root / scanned.path).read_bytes()
@@ -73,21 +76,30 @@ async def _build_units(
         chunks, parsed = _chunks_for(scanned, source)
         all_chunks.extend(chunks)
         if parsed is not None:
-            symbol_rows.extend(
-                {
-                    "file_path": scanned.path,
-                    "name": s.name,
-                    "qualified_name": s.qualified_name,
-                    "kind": str(s.kind),
-                    "start_line": s.start_line,
-                    "end_line": s.end_line,
-                    "signature": s.signature,
-                    "docstring": s.docstring,
-                    "parent": s.parent,
-                }
-                for s in parsed.symbols
-            )
-    return all_chunks, symbol_rows
+            for s in parsed.symbols:
+                symbol_rows.append(
+                    {
+                        "file_path": scanned.path,
+                        "name": s.name,
+                        "qualified_name": s.qualified_name,
+                        "kind": str(s.kind),
+                        "start_line": s.start_line,
+                        "end_line": s.end_line,
+                        "signature": s.signature,
+                        "docstring": s.docstring,
+                        "parent": s.parent,
+                    }
+                )
+                contexts.append(
+                    SymbolContext(
+                        qualified_name=s.qualified_name,
+                        name=s.name,
+                        file_path=scanned.path,
+                        parent=s.parent,
+                        body=parsed.source[s.start_byte : s.end_byte].decode("utf-8", "replace"),
+                    )
+                )
+    return all_chunks, symbol_rows, contexts
 
 
 def _vector_points(
@@ -171,7 +183,8 @@ async def index_working_tree(
     session_factory = session_factory or make_session_factory_from_settings()
 
     scan_result = await scan(acquisition)
-    chunks, symbol_rows = await _build_units(acquisition, scan_result.files)
+    chunks, symbol_rows, contexts = await _build_units(acquisition, scan_result.files)
+    edges = extract_edges(contexts)
 
     await vector_index.prepare(embedder.dimensions)
     vectors = await embedder.embed([c.embed_text for c in chunks], input_type="document")
@@ -191,7 +204,12 @@ async def index_working_tree(
     )
     await vector_index.upsert(points)
 
-    stats = {"files": len(scan_result.files), "chunks": len(chunks), "symbols": len(symbol_rows)}
+    stats = {
+        "files": len(scan_result.files),
+        "chunks": len(chunks),
+        "symbols": len(symbol_rows),
+        "edges": len(edges),
+    }
     async with session_factory() as session:
         await repo.add_files(
             session,
@@ -208,6 +226,20 @@ async def index_working_tree(
         )
         if symbol_rows:
             session.add_all([SymbolRow(snapshot_id=snapshot_id, **s) for s in symbol_rows])
+        if edges:
+            session.add_all(
+                [
+                    EdgeModel(
+                        snapshot_id=snapshot_id,
+                        src=e.src,
+                        dst=e.dst,
+                        kind=e.kind,
+                        confidence=e.confidence,
+                        src_file=e.src_file,
+                    )
+                    for e in edges
+                ]
+            )
         await repo.add_chunks(session, chunk_rows)
         await repo.finalize_snapshot(session, repo_id, snapshot_id, stats)
         await session.commit()

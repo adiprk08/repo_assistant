@@ -49,6 +49,11 @@ def eval(
     no_sparse: bool = typer.Option(
         False, "--no-sparse", help="Ablation: disable the BM25 sparse channel."
     ),
+    graph: bool = typer.Option(
+        False,
+        "--graph",
+        help="Enable the code-graph channel (off by default; validate on trace questions).",
+    ),
     rerank: bool = typer.Option(
         False,
         "--rerank",
@@ -74,6 +79,7 @@ def eval(
             dataset_paths,
             use_symbols=not dense_only,
             use_sparse=not dense_only and not no_sparse,
+            use_graph=not dense_only and graph,
             use_rerank=rerank,
             retrieval_only=retrieval_only,
             gate=gate,
@@ -144,8 +150,9 @@ async def _chat(identifier: str) -> None:
                     vector_index=runtime.vector_index,
                     session_factory=runtime.session_factory,
                     commit=resolved.commit_sha,
+                    use_graph=False,
                     use_rerank=False,
-                )
+                )  # dense+sparse+symbol, RRF-fused (graph opt-in, pending trace eval)
                 answer = await generate_answer(question, retrieved, llm=llm)
             except ProviderError as exc:
                 typer.secho(f"  provider error: {exc}", fg=typer.colors.RED)
@@ -160,6 +167,7 @@ async def _eval(
     *,
     use_symbols: bool,
     use_sparse: bool,
+    use_graph: bool,
     use_rerank: bool,
     retrieval_only: bool,
     gate: bool,
@@ -189,6 +197,7 @@ async def _eval(
                         runtime,
                         use_symbols=use_symbols,
                         use_sparse=use_sparse,
+                        use_graph=use_graph,
                         use_rerank=use_rerank,
                         retrieval_only=retrieval_only,
                     )
@@ -196,7 +205,12 @@ async def _eval(
             except (NotFoundError, ProviderError) as exc:
                 raise typer.Exit(code=_fail(str(exc))) from exc
 
-        channels = "dense" + ("+sparse" if use_sparse else "") + ("+symbol" if use_symbols else "")
+        channels = (
+            "dense"
+            + ("+sparse" if use_sparse else "")
+            + ("+symbol" if use_symbols else "")
+            + ("+graph" if use_graph else "")
+        )
         config = {
             "generation_model": None if retrieval_only else runtime.settings.generation_model,
             "embedding_model": runtime.settings.embedding_model,

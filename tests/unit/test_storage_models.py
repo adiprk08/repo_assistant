@@ -17,6 +17,7 @@ def test_all_models_are_registered_on_the_shared_metadata() -> None:
         "embedding_cache",
         "eval_runs",
         "eval_results",
+        "edges",
     }
 
 

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from repo_assistant.core.interfaces import Embedder, Reranker, SearchResult, VectorIndex
 from repo_assistant.core.logging import get_logger
 from repo_assistant.core.sparse import text_to_sparse
+from repo_assistant.graph.search import graph_search
 from repo_assistant.retrieval.fusion import reciprocal_rank_fusion
 from repo_assistant.retrieval.symbols import symbol_search
 
@@ -109,6 +110,7 @@ async def hybrid_retrieve(
     rerank_k: int = 50,
     use_symbols: bool = True,
     use_sparse: bool = True,
+    use_graph: bool = False,
     use_rerank: bool = True,
 ) -> list[RetrievedChunk]:
     """Retrieve by fusing the dense, sparse (BM25), and symbol channels via RRF.
@@ -140,6 +142,11 @@ async def hybrid_retrieve(
         symbol_ids = await symbol_search(session_factory, str(snapshot_id), query)
         if symbol_ids:
             rankings.append(symbol_ids)
+
+    if use_graph:
+        graph_ids = await graph_search(session_factory, str(snapshot_id), query)
+        if graph_ids:
+            rankings.append(graph_ids)
 
     # Rerank a generous candidate pool, then trim to `limit`; without reranking the
     # fused order itself is the result.

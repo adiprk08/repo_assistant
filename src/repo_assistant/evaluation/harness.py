@@ -117,6 +117,7 @@ async def run_dataset(
     *,
     use_symbols: bool = True,
     use_sparse: bool = True,
+    use_graph: bool = False,
     use_rerank: bool = True,
     retrieval_only: bool = False,
 ) -> EvalReport:
@@ -142,6 +143,7 @@ async def run_dataset(
             rerank_k=_RETRIEVE_K,
             use_symbols=use_symbols,
             use_sparse=use_sparse,
+            use_graph=use_graph,
             use_rerank=use_rerank,
         )
         ranked = [RankedChunk(c.path, c.start_line, c.end_line) for c in retrieved]

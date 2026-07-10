@@ -98,6 +98,15 @@ symbol channel with equally-scored matches that RRF lets crowd out the relevant 
 The channel trades precision for recall on large repos — the motivation for cross-encoder
 reranking (task 19), which restores order over the fused candidates.
 
+### Code-graph channel added (task 22) — retrieval-only ablation
+
+The graph channel (contains + heuristic call edges, 1-hop neighbor expansion) is
+**neutral on the current benchmark** (MRR 0.89→0.89, nDCG 0.77→0.74) because those
+questions are explain/lookup, not trace. It is therefore **off by default**
+(opt-in `ra eval --graph`) pending its fair test — the trace/architecture question
+sets (task 24), which name a symbol and expect its *callers/callees* as evidence.
+Same discipline as reranking: no channel ships on without measured benefit.
+
 ### Phase 2 full baseline — dense+sparse+symbol (best config)
 
 Full run (generation + judge) on the 26-question set, `claude-opus-4-8` judge:

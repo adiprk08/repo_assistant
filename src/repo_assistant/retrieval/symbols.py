@@ -8,8 +8,8 @@ emits ranked chunk ids that fuse with the vector channels (docs/ARCHITECTURE.md
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from repo_assistant.core.identifiers import extract_identifiers
 from repo_assistant.core.logging import get_logger
-from repo_assistant.retrieval.identifiers import extract_identifiers
 
 logger = get_logger(__name__)
 

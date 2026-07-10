@@ -1,7 +1,7 @@
 """RRF fusion and identifier extraction."""
 
+from repo_assistant.core.identifiers import extract_identifiers
 from repo_assistant.retrieval.fusion import reciprocal_rank_fusion
-from repo_assistant.retrieval.identifiers import extract_identifiers
 
 
 def test_rrf_rewards_agreement_across_channels() -> None:

@@ -104,6 +104,21 @@ async def test_sparse_channel_retrieves_by_lexical_match(
     assert any("slugify" in h.payload["text"] for h in hits)
 
 
+async def test_graph_channel_surfaces_neighbors(local_repo, qdrant_index, session_factory) -> None:
+    from repo_assistant.graph.search import graph_search
+
+    embedder = FakeEmbedder(dimensions=32)
+    result = await index_working_tree(
+        local_repo, embedder=embedder, vector_index=qdrant_index, session_factory=session_factory
+    )
+    # SessionManager contains refresh/revoke -> naming the class should surface
+    # chunks for its members via contains edges.
+    chunk_ids = await graph_search(session_factory, str(result.snapshot_id), "SessionManager")
+    fetched = await qdrant_index.fetch(repo_id=str(result.repo_id), ids=chunk_ids)
+    texts = " ".join(f.payload["text"] for f in fetched)
+    assert "refresh" in texts or "revoke" in texts
+
+
 async def test_hybrid_retrieve_with_reranker(local_repo, qdrant_index, session_factory) -> None:
     embedder = FakeEmbedder(dimensions=32)
     result = await index_working_tree(

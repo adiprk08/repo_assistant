@@ -1,6 +1,6 @@
 # ADR-0005: Code graph in Postgres with heuristic resolution
 
-**Status:** Accepted (2026-07-07)
+**Status:** Accepted (2026-07-07); implemented Phase 3 (2026-07-10) — `edges` table + heuristic extraction (contains, scored calls) + graph retrieval channel. Channel is opt-in pending trace-question validation (docs/EVALUATION.md §5).
 
 ## Context
 

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -103,6 +103,27 @@ class Chunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer)
 
     __table_args__ = (Index("ix_chunks_snapshot", "snapshot_id"),)
+
+
+class Edge(Base):
+    """A code-graph edge (docs/adr/0005-code-graph.md). ``src``/``dst`` are symbol
+    qualified names or module/file identifiers; kind is one of
+    contains/imports/inherits/calls/references, each with a confidence in [0,1]."""
+
+    __tablename__ = "edges"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("snapshots.id"))
+    src: Mapped[str] = mapped_column(String)
+    dst: Mapped[str] = mapped_column(String)
+    kind: Mapped[str] = mapped_column(String)
+    confidence: Mapped[float] = mapped_column(Float)
+    src_file: Mapped[str] = mapped_column(String)
+
+    __table_args__ = (
+        Index("ix_edges_snapshot_src", "snapshot_id", "src"),
+        Index("ix_edges_snapshot_dst", "snapshot_id", "dst"),
+    )
 
 
 class EmbeddingCache(Base):
