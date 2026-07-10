@@ -1,0 +1,104 @@
+"""LLM-as-judge grading (docs/EVALUATION.md §3).
+
+The judge scores an answer against the question and the gold evidence files on
+two axes — correctness and groundedness — returning a small JSON object we parse.
+Kept model-agnostic behind ``LLMClient``; the judge model id is configuration.
+"""
+
+import json
+from dataclasses import dataclass
+
+from repo_assistant.core.interfaces import LLMClient, Message
+from repo_assistant.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+_JUDGE_SYSTEM = """\
+You are a strict evaluator of a code-question-answering system. You are given a \
+question, the assistant's answer, and the list of repository files that actually \
+contain the answer (the gold evidence). Score the answer on two axes from 1 to 5:
+
+- correctness: Is the answer factually right about the code? 5 = fully correct, \
+1 = wrong or misleading.
+- groundedness: Are the claims supported by the cited repository files rather than \
+generic knowledge? 5 = clearly grounded in these files, 1 = ungrounded.
+
+Respond with ONLY a JSON object, no prose:
+{"correctness": <1-5>, "groundedness": <1-5>, "rationale": "<one sentence>"}\
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class Judgement:
+    correctness: int
+    groundedness: int
+    rationale: str
+
+
+def _clamp(value: object) -> int:
+    try:
+        return max(1, min(5, int(value)))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 1
+
+
+_NEGATIVE_JUDGE_SYSTEM = """\
+You are evaluating whether a code assistant correctly handled a question whose \
+answer is NOT present in the repository. The correct behavior is to indicate the \
+feature/capability is absent (or that it could not be found) WITHOUT fabricating \
+that the repository provides it.
+
+Respond with ONLY a JSON object, no prose:
+{"handled_correctly": <true|false>, "rationale": "<one sentence>"}
+
+handled_correctly is true if the answer makes clear the capability is not present \
+in this repository; false if it invents or claims the capability exists here.\
+"""
+
+
+async def judge_negative(llm: LLMClient, *, question: str, answer: str) -> tuple[bool, str]:
+    """Return (handled_correctly, rationale) for a not-present question."""
+    prompt = f"Question:\n{question}\n\nAssistant answer:\n{answer}\n"
+    response = await llm.generate(
+        messages=[Message(role="user", content=prompt)],
+        system=_NEGATIVE_JUDGE_SYSTEM,
+        max_tokens=200,
+    )
+    text = response.text.strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end == -1:
+        return False, "unparseable judge output"
+    try:
+        data = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return False, "invalid judge JSON"
+    return bool(data.get("handled_correctly")), str(data.get("rationale", ""))[:300]
+
+
+async def judge_answer(
+    llm: LLMClient, *, question: str, answer: str, expected_files: list[str]
+) -> Judgement:
+    prompt = (
+        f"Question:\n{question}\n\n"
+        f"Gold evidence files:\n{', '.join(expected_files) or '(none)'}\n\n"
+        f"Assistant answer:\n{answer}\n"
+    )
+    response = await llm.generate(
+        messages=[Message(role="user", content=prompt)],
+        system=_JUDGE_SYSTEM,
+        max_tokens=300,
+    )
+    text = response.text.strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end == -1:
+        logger.warning("judge returned no JSON", text=text[:200])
+        return Judgement(correctness=1, groundedness=1, rationale="unparseable judge output")
+    try:
+        data = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return Judgement(correctness=1, groundedness=1, rationale="invalid judge JSON")
+    return Judgement(
+        correctness=_clamp(data.get("correctness")),
+        groundedness=_clamp(data.get("groundedness")),
+        rationale=str(data.get("rationale", ""))[:300],
+    )

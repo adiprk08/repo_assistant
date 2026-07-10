@@ -1,0 +1,43 @@
+# Golden Q&A for yocto-queue. `expected_files` lists evidence file(s); an empty
+# list marks a negative question whose correct answer is an honest refusal.
+repo_url: https://github.com/sindresorhus/yocto-queue
+questions:
+  - id: yq-arch-1
+    question: How is the queue implemented internally?
+    category: architecture
+    expected_files: [index.js]
+
+  - id: yq-explain-1
+    question: How does enqueue add a new value, and why is it O(1)?
+    category: explain
+    expected_files: [index.js]
+
+  - id: yq-explain-2
+    question: What happens to the tail reference when the queue becomes empty after a dequeue?
+    category: explain
+    expected_files: [index.js]
+
+  - id: yq-lookup-1
+    question: How can you iterate over all values in the queue?
+    category: lookup
+    expected_files: [index.js]
+
+  - id: yq-lookup-2
+    question: What does the drain method do?
+    category: lookup
+    expected_files: [index.js]
+
+  - id: yq-lookup-3
+    question: How is the size of the queue tracked and exposed?
+    category: lookup
+    expected_files: [index.js]
+
+  - id: yq-neg-1
+    question: Does this queue support priority ordering or a max-heap?
+    category: negative
+    expected_files: []
+
+  - id: yq-neg-2
+    question: Is there a method to persist the queue to disk?
+    category: negative
+    expected_files: []

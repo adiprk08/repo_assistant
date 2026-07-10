@@ -1,0 +1,15 @@
+# Benchmark repositories, pinned to a commit for reproducible evaluation
+# (docs/EVALUATION.md §2). Phase 1 starter set: two small repos that index
+# within the Voyage free-tier rate limit. Expand to medium/large + more
+# languages once a Voyage payment method lifts the 10K tokens/min cap.
+repos:
+  - name: is-plain-obj
+    url: https://github.com/sindresorhus/is-plain-obj
+    commit: 97f38e8836f86a642cce98fc6ab3058bc36df181
+    language: javascript
+    size: small
+  - name: yocto-queue
+    url: https://github.com/sindresorhus/yocto-queue
+    commit: b07eac099753833b29d06c614149904445739776
+    language: javascript
+    size: small

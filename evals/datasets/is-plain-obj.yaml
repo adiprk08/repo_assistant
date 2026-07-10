@@ -1,0 +1,44 @@
+# Golden Q&A for is-plain-obj. `expected_files` lists the file(s) that contain
+# the evidence; an empty list marks a "negative" question whose correct answer
+# is an honest refusal (docs/EVALUATION.md §2).
+repo_url: https://github.com/sindresorhus/is-plain-obj
+questions:
+  - id: ipo-explain-1
+    question: How does the library determine whether a value is a plain object?
+    category: explain
+    expected_files: [index.js]
+
+  - id: ipo-lookup-1
+    question: What does isPlainObject return when given null?
+    category: lookup
+    expected_files: [index.js]
+
+  - id: ipo-explain-2
+    question: How does it recognize objects created with Object.create(null)?
+    category: explain
+    expected_files: [index.js]
+
+  - id: ipo-explain-3
+    question: Why does the check exclude values that have Symbol.toStringTag or Symbol.iterator?
+    category: explain
+    expected_files: [index.js, readme.md]
+
+  - id: ipo-lookup-2
+    question: How is the isPlainObject function exported from the module?
+    category: lookup
+    expected_files: [index.js]
+
+  - id: ipo-arch-1
+    question: Does the implementation rely on the prototype chain, and how?
+    category: architecture
+    expected_files: [index.js]
+
+  - id: ipo-neg-1
+    question: Does this library provide a deep clone or merge utility for objects?
+    category: negative
+    expected_files: []
+
+  - id: ipo-neg-2
+    question: Is there a function here that validates email addresses?
+    category: negative
+    expected_files: []

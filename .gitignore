@@ -24,6 +24,9 @@ storage/
 *.sqlite3
 logs/
 
+# Generated evaluation reports (baseline recorded in docs/EVALUATION.md)
+evals/reports/
+
 # Cloned repositories under analysis
 workdir/
 repos/

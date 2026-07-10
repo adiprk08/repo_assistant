@@ -39,6 +39,19 @@ def chat(
     asyncio.run(_chat(repo))
 
 
+@app.command()
+def eval(
+    datasets_dir: str = typer.Option("evals/datasets", "--datasets", help="Golden dataset dir."),
+) -> None:
+    """Run the golden evaluation datasets and record a baseline report."""
+    from pathlib import Path
+
+    dataset_paths = sorted(Path(datasets_dir).glob("*.yaml"))
+    if not dataset_paths:
+        raise typer.Exit(code=_fail(f"No datasets found in {datasets_dir}"))
+    asyncio.run(_eval(dataset_paths))
+
+
 async def _index(github_url: str, ref: str | None) -> None:
     from repo_assistant.cli.runtime import build_runtime
     from repo_assistant.indexing.pipeline import index_repository
@@ -106,6 +119,50 @@ async def _chat(identifier: str) -> None:
             _print_answer(answer)
     finally:
         await runtime.aclose()
+
+
+async def _eval(dataset_paths: list) -> None:
+    from pathlib import Path
+
+    from repo_assistant.cli.runtime import build_runtime
+    from repo_assistant.evaluation import DatasetSpec, run_dataset
+    from repo_assistant.evaluation.harness import write_report
+
+    runtime = build_runtime()
+    reports = []
+    try:
+        for path in dataset_paths:
+            dataset = DatasetSpec.from_yaml(path)
+            typer.echo(f"Evaluating {path.stem} ({len(dataset.questions)} questions) ...")
+            try:
+                reports.append(await run_dataset(dataset, runtime))
+            except (NotFoundError, ProviderError) as exc:
+                raise typer.Exit(code=_fail(str(exc))) from exc
+
+        config = {
+            "generation_model": runtime.settings.generation_model,
+            "embedding_model": runtime.settings.embedding_model,
+            "embedding_dimensions": runtime.settings.embedding_dimensions,
+        }
+        report_path = write_report(reports, config, Path("evals/reports"))
+    finally:
+        await runtime.aclose()
+
+    _print_eval_summary(reports)
+    typer.secho(f"\nReport written to {report_path}", fg=typer.colors.GREEN)
+
+
+def _print_eval_summary(reports) -> None:
+    from repo_assistant.evaluation.harness import _overall
+
+    typer.secho("\nEvaluation baseline", fg=typer.colors.CYAN, bold=True)
+    for report in reports:
+        typer.secho(f"\n  {report.dataset}", bold=True)
+        for metric, value in report.summary().items():
+            typer.echo(f"    {metric:24} {value}")
+    typer.secho("\n  OVERALL", fg=typer.colors.CYAN, bold=True)
+    for metric, value in _overall(reports).items():
+        typer.echo(f"    {metric:24} {value}")
 
 
 def _print_answer(answer: Answer) -> None:

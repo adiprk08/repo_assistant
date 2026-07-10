@@ -60,9 +60,17 @@ class VoyageEmbedder(Embedder):
         return self._dimensions
 
     @retry(
-        retry=retry_if_exception_type(voyage_error.RateLimitError),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
-        stop=stop_after_attempt(5),
+        # Retry transient failures — including free-tier rate limits, whose window
+        # can be up to a minute, so the backoff must be patient enough to clear it.
+        retry=retry_if_exception_type(
+            (
+                voyage_error.RateLimitError,
+                voyage_error.ServerError,
+                voyage_error.ServiceUnavailableError,
+            )
+        ),
+        wait=wait_exponential(multiplier=2, min=4, max=64),
+        stop=stop_after_attempt(7),
         reraise=True,
     )
     async def _embed_batch(self, batch: list[str], input_type: InputType) -> list[list[float]]:

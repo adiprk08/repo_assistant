@@ -23,7 +23,7 @@
 
 **Exit criteria:** CI green; `ra --help` runs; `docker compose up` brings up storage; a fake-provider round-trip test passes.
 
-## Phase 1 — Vertical slice MVP (~2 weeks)
+## Phase 1 — Vertical slice MVP (~2 weeks) — ✅ COMPLETE (2026-07-10)
 
 **Goal:** ask a real question about a real public repo and get a cited answer.
 
@@ -41,7 +41,7 @@
 
 **Goal:** measurably better retrieval, and the machinery to prove it.
 
-- Eval harness v1 ([EVALUATION.md](EVALUATION.md)): retrieval metrics (recall@k, MRR, nDCG), LLM-judge answer grading, citation precision; `ra eval` command; CI smoke gate
+- Eval harness (extends the Phase 1 starter — `ra eval`, LLM judge, citation + negative-handling metrics already exist): add span-level retrieval metrics (recall@k, MRR, nDCG) against labeled evidence, DB-persisted `eval_runs`/`eval_results`, and a CI smoke gate
 - Hybrid retrieval: BM25 sparse vectors in Qdrant, server-side hybrid + RRF
 - Symbol channel: exact + trigram-fuzzy identifier lookup
 - Cross-encoder reranking (voyage rerank-2.5 behind `Reranker`)

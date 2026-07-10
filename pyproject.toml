@@ -23,6 +23,7 @@ dependencies = [
   "voyageai>=0.3",
   "networkx>=3.4",
   "tenacity>=9.0",
+  "pyyaml>=6.0",
 ]
 
 [project.scripts]
