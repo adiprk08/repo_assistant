@@ -60,6 +60,89 @@ questions:
     expected_spans:
       - {file: src/click/types.py, start: 42, end: 130}
 
+  # --- Trace/architecture set (task: graph-channel verdict). Evidence is
+  # multi-span, mostly caller-callee across files, span-labeled against the
+  # pinned commit b67832c2 from a fresh clone.
+
+  - id: clk-trace-main-1
+    question: What happens from invoking a command's main() method to the command's callback function actually executing?
+    category: trace
+    expected_files: [src/click/core.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 1478, end: 1589}
+      - {file: src/click/core.py, start: 1395, end: 1410}
+      - {file: src/click/core.py, start: 857, end: 911}
+
+  - id: clk-trace-runner-1
+    question: How does CliRunner.invoke end up calling the command's main() method, and how are the exit code and output captured into a Result?
+    category: trace
+    expected_files: [src/click/testing.py, src/click/core.py]
+    expected_spans:
+      - {file: src/click/testing.py, start: 596, end: 732}
+      - {file: src/click/core.py, start: 1478, end: 1589}
+
+  - id: clk-trace-prompt-1
+    question: When an option with a prompt is missing from the command line, trace how consume_value triggers prompt_for_value and reaches the terminal prompt() function.
+    category: trace
+    expected_files: [src/click/core.py, src/click/termui.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 3507, end: 3567}
+      - {file: src/click/core.py, start: 3391, end: 3439}
+      - {file: src/click/termui.py, start: 132, end: 244}
+
+  - id: clk-trace-convert-1
+    question: Trace how a raw command-line string becomes a typed parameter value, from handle_parse_result through process_value and type_cast_value to the ParamType convert method.
+    category: trace
+    expected_files: [src/click/core.py, src/click/types.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 2719, end: 2805}
+      - {file: src/click/core.py, start: 2592, end: 2656}
+      - {file: src/click/core.py, start: 2518, end: 2573}
+      - {file: src/click/types.py, start: 101, end: 155}
+
+  - id: clk-trace-error-1
+    question: When a UsageError is raised while parsing arguments, trace how main() catches it and how show() prints the usage hint and error message.
+    category: trace
+    expected_files: [src/click/core.py, src/click/exceptions.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 1543, end: 1589}
+      - {file: src/click/exceptions.py, start: 35, end: 111}
+
+  - id: clk-trace-complete-1
+    question: Trace a shell tab-completion request from _main_shell_completion detecting it, through the shell_complete entry point, to ShellComplete.complete producing completions.
+    category: trace
+    expected_files: [src/click/core.py, src/click/shell_completion.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 1591, end: 1642}
+      - {file: src/click/shell_completion.py, start: 19, end: 56}
+      - {file: src/click/shell_completion.py, start: 292, end: 325}
+
+  - id: clk-arch-parser-1
+    question: How is the low-level option parser layer separated from the command layer, and how do parameters register themselves with the _OptionParser?
+    category: architecture
+    expected_files: [src/click/core.py, src/click/parser.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 1220, end: 1226}
+      - {file: src/click/core.py, start: 3223, end: 3261}
+      - {file: src/click/parser.py, start: 224, end: 297}
+
+  - id: clk-arch-context-1
+    question: How does Click keep track of the current context across nested command invocations, using push_context, pop_context, and get_current_context?
+    category: architecture
+    expected_files: [src/click/core.py, src/click/globals.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 549, end: 568}
+      - {file: src/click/globals.py, start: 13, end: 52}
+
+  - id: clk-arch-completion-1
+    question: How is shell completion structured to support multiple shells — what does the ShellComplete base class provide, and how do BashComplete, ZshComplete, and FishComplete plug into it?
+    category: architecture
+    expected_files: [src/click/shell_completion.py]
+    expected_spans:
+      - {file: src/click/shell_completion.py, start: 216, end: 326}
+      - {file: src/click/shell_completion.py, start: 327, end: 458}
+      - {file: src/click/shell_completion.py, start: 459, end: 503}
+
   - id: clk-neg-1
     question: Does Click include a built-in HTTP client for making web requests?
     category: negative

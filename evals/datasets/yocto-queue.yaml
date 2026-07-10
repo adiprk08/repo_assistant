@@ -44,6 +44,14 @@ questions:
     expected_spans:
       - {file: index.js, start: 72, end: 74}
 
+  - id: yq-trace-1
+    question: When enqueue() is called, trace how a new Node is created and linked into the queue through the tail reference.
+    category: trace
+    expected_files: [index.js]
+    expected_spans:
+      - {file: index.js, start: 6, end: 13}
+      - {file: index.js, start: 24, end: 36}
+
   - id: yq-neg-1
     question: Does this queue support priority ordering or a max-heap?
     category: negative

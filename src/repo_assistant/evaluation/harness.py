@@ -172,11 +172,13 @@ def write_report(reports: list[EvalReport], config: dict, out_dir: Path) -> Path
                 "dataset": r.dataset,
                 "repo_url": r.repo_url,
                 "summary": r.summary(),
+                "by_category": r.by_category(),
                 "results": [asdict(qr) for qr in r.results],
             }
             for r in reports
         ],
         "overall": _overall(reports),
+        "overall_by_category": overall_by_category(reports),
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return path
@@ -188,6 +190,15 @@ def _overall(reports: list[EvalReport]) -> dict[str, float | int]:
         return {}
     combined = EvalReport(dataset="overall", repo_url="", results=all_results)
     return combined.summary()
+
+
+def overall_by_category(reports: list[EvalReport]) -> dict[str, dict[str, float | int]]:
+    """Cross-dataset per-category metrics — the unit channel ablations are judged on."""
+    all_results = [qr for r in reports for qr in r.results]
+    if not all_results:
+        return {}
+    combined = EvalReport(dataset="overall", repo_url="", results=all_results)
+    return combined.by_category()
 
 
 async def persist_report(reports: list[EvalReport], config: dict, runtime: Runtime) -> None:

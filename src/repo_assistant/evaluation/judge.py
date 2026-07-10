@@ -35,11 +35,49 @@ class Judgement:
     rationale: str
 
 
+# Headroom so a verbose rationale (or a brief model preamble) can't truncate the
+# closing brace and make the whole judgement unparseable.
+_JUDGE_MAX_TOKENS = 512
+
+
 def _clamp(value: object) -> int:
     try:
         return max(1, min(5, int(value)))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return 1
+
+
+def _extract_json(text: str) -> dict | None:
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end == -1:
+        return None
+    try:
+        parsed = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+async def _judge_json(
+    llm: LLMClient, *, system: str, prompt: str, attempts: int = 2
+) -> dict | None:
+    """Generate and parse a JSON judgement, retrying once on a formatting glitch.
+
+    An unparseable judge response is a judge-side failure, not evidence about the
+    answer — scoring it as a wrong answer would corrupt pass_rate — so we retry
+    before giving up (docs/EVALUATION.md §3).
+    """
+    for attempt in range(attempts):
+        response = await llm.generate(
+            messages=[Message(role="user", content=prompt)],
+            system=system,
+            max_tokens=_JUDGE_MAX_TOKENS,
+        )
+        data = _extract_json(response.text.strip())
+        if data is not None:
+            return data
+        logger.warning("judge output not parseable JSON", attempt=attempt, text=response.text[:200])
+    return None
 
 
 _NEGATIVE_JUDGE_SYSTEM = """\
@@ -59,19 +97,9 @@ in this repository; false if it invents or claims the capability exists here.\
 async def judge_negative(llm: LLMClient, *, question: str, answer: str) -> tuple[bool, str]:
     """Return (handled_correctly, rationale) for a not-present question."""
     prompt = f"Question:\n{question}\n\nAssistant answer:\n{answer}\n"
-    response = await llm.generate(
-        messages=[Message(role="user", content=prompt)],
-        system=_NEGATIVE_JUDGE_SYSTEM,
-        max_tokens=200,
-    )
-    text = response.text.strip()
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end == -1:
+    data = await _judge_json(llm, system=_NEGATIVE_JUDGE_SYSTEM, prompt=prompt)
+    if data is None:
         return False, "unparseable judge output"
-    try:
-        data = json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return False, "invalid judge JSON"
     return bool(data.get("handled_correctly")), str(data.get("rationale", ""))[:300]
 
 
@@ -83,20 +111,9 @@ async def judge_answer(
         f"Gold evidence files:\n{', '.join(expected_files) or '(none)'}\n\n"
         f"Assistant answer:\n{answer}\n"
     )
-    response = await llm.generate(
-        messages=[Message(role="user", content=prompt)],
-        system=_JUDGE_SYSTEM,
-        max_tokens=300,
-    )
-    text = response.text.strip()
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end == -1:
-        logger.warning("judge returned no JSON", text=text[:200])
+    data = await _judge_json(llm, system=_JUDGE_SYSTEM, prompt=prompt)
+    if data is None:
         return Judgement(correctness=1, groundedness=1, rationale="unparseable judge output")
-    try:
-        data = json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return Judgement(correctness=1, groundedness=1, rationale="invalid judge JSON")
     return Judgement(
         correctness=_clamp(data.get("correctness")),
         groundedness=_clamp(data.get("groundedness")),

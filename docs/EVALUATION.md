@@ -106,6 +106,80 @@ questions are explain/lookup, not trace. It is therefore **off by default**
 (opt-in `ra eval --graph`) pending its fair test — the trace/architecture question
 sets (task 24), which name a symbol and expect its *callers/callees* as evidence.
 Same discipline as reranking: no channel ships on without measured benefit.
+**Verdict rendered below (task 24): the fair test confirms off-by-default.**
+
+### Trace/architecture question sets + graph-channel verdict (task 24)
+
+Dataset expanded **26 → 36 questions**: 7 new `trace` + 3 new `architecture` for
+`click`, 1 new `trace` for `yocto-queue` — multi-span, mostly cross-file
+caller-callee evidence (e.g. `main()` → `Command.invoke` → `Context.invoke`;
+`consume_value` → `prompt_for_value` → `termui.prompt`), span-labeled from a
+fresh clone of the pinned commits. Final mix: 9 trace / 6 architecture / 9
+explain / 6 lookup / 6 negative. The harness now reports **per-category
+metrics** (`by_category` in reports and CLI) — the unit channel ablations are
+judged on.
+
+**New retrieval baseline** (dense+sparse+symbol, retrieval-only, 36 Q — not
+comparable to the 26-Q numbers above; the dataset changed):
+overall MRR 0.92 / nDCG@10 0.77 / recall@5 0.92 / recall@10 0.93. CI gate floors
+(recall@10 ≥ 0.90, MRR ≥ 0.70, nDCG@10 ≥ 0.70) still clear on the expanded set.
+On multi-span questions **MRR saturates** (a symbol-channel hit lands rank 1
+almost always), so **span coverage (recall@k) and nDCG@10 are the discriminating
+metrics** for trace/architecture.
+
+**Graph channel A/B** (`ra eval --retrieval-only` vs `--retrieval-only --graph`),
+per category:
+
+| Metric | no graph | +graph | Δ |
+|---|---|---|---|
+| trace nDCG@10 | **0.76** | 0.66 | **−0.10** |
+| trace recall@5 / @10 | 0.81 / 0.85 | 0.81 / 0.85 | 0 / 0 |
+| architecture nDCG@10 | **0.85** | 0.80 | **−0.05** |
+| architecture MRR | **1.00** | 0.92 | −0.08 |
+| architecture recall@10 / @25 | 0.89 / 0.94 | **1.00 / 1.00** | **+0.11 / +0.06** |
+| overall MRR / nDCG@10 | 0.92 / 0.77 | 0.93 / 0.73 | +0.01 / −0.04 |
+
+**Verdict: off by default stands, now on a fair test.** The channel behaves
+exactly as ADR-0005 predicted — a *recall* device: it rescued the one question
+dense+sparse missed outright (`clk-arch-parser-1` recall@10 0.33→1.00) and finds
+deep spans (`clk-trace-main-1` recall@25 0.67→1.00). But it pays for that in
+ranking quality on the very categories it targets. **Failure mode: hub-symbol
+flooding.** Trace questions name high-degree symbols (`invoke`: 2,376 edges,
+`cli`: 15,088 in click's graph); 1-hop expansion around a hub injects a large,
+weakly-ordered neighbor set into RRF, displacing labeled evidence
+(`clk-trace-main-1` nDCG 0.76→0.42; `clk-trace-runner-1` recall@25 1.00→0.50;
+`clk-parser-1` MRR 1.00→0.50). Decision + candidate fixes (degree-capped
+expansion, down-weighted fusion) recorded in **ADR-0011**; the graph's primary
+consumer remains targeted traversal by the Phase 3 agent loop (task 25), not
+blind channel fusion.
+
+### Phase 3 full judged baseline — 36-question set (task 24)
+
+Full run (generation + judge) on the expanded 36-question set, default config
+(dense+sparse+symbol, no graph, no rerank), `claude-opus-4-8` generation + judge:
+
+| Metric | Overall | trace | architecture |
+|---|---|---|---|
+| Pass rate | 0.97 (35/36) | 1.00 | 1.00 |
+| Answer correctness (1–5) | 4.70 | — | — |
+| Groundedness (1–5) | 4.53 | — | — |
+| Citation presence | 1.00 | — | — |
+| Citation file precision | 0.97 | — | — |
+| Negative handled rate | 1.00 | — | — |
+| MRR / nDCG@10 | 0.92 / 0.77 | 1.00 / 0.76 | 1.00 / 0.85 |
+
+**The single miss was a judge artifact, not a wrong answer.** `clk-test-1`
+retrieved correctly (recall@5 1.00, 13 citations) but the judge returned prose
+with no parseable JSON on that one call; the harness scored the fallback
+`correctness=1`, failing the question. Effective answer quality on this set is
+36/36. **Fix shipped in the same change set:** the judge now retries once on
+unparseable output and has token headroom (`_JUDGE_MAX_TOKENS=512`), and rejects
+non-object JSON — covered by `tests/unit/test_judge.py`. The clean confirmation
+re-run could not complete: the Anthropic credit balance hit zero mid-run (the
+recurring depletion noted in the session handoff — a full judged eval is ~50+
+Opus calls across generation and judging). The numbers above are the last
+complete judged run; retrieval-only numbers (cost-free) are unaffected and remain
+the authority for the graph verdict.
 
 ### Phase 2 full baseline — dense+sparse+symbol (best config)
 

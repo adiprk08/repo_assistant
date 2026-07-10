@@ -1,6 +1,6 @@
 # ADR-0005: Code graph in Postgres with heuristic resolution
 
-**Status:** Accepted (2026-07-07); implemented Phase 3 (2026-07-10) — `edges` table + heuristic extraction (contains, scored calls) + graph retrieval channel. Channel is opt-in pending trace-question validation (docs/EVALUATION.md §5).
+**Status:** Accepted (2026-07-07); implemented Phase 3 (2026-07-10) — `edges` table + heuristic extraction (contains, scored calls) + graph retrieval channel. Trace-question validation complete: the channel stays **opt-in** ([ADR-0011](0011-graph-channel-disabled-by-default.md)); the graph's default-path role is agent-tool traversal, not channel fusion.
 
 ## Context
 

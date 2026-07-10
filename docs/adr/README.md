@@ -14,3 +14,4 @@ Format: Status / Context / Decision / Alternatives considered / Consequences. AD
 | [0008](0008-job-queue.md) | arq + Redis with checkpointed pipeline stages | Accepted |
 | [0009](0009-multitenancy-and-versioning.md) | Payload-partitioned multitenancy; commit-pinned snapshots | Accepted |
 | [0010](0010-reranking-disabled-by-default.md) | Reranking disabled by default (measured net-negative) | Accepted |
+| [0011](0011-graph-channel-disabled-by-default.md) | Graph retrieval channel disabled by default (measured net-negative on trace/architecture) | Accepted |

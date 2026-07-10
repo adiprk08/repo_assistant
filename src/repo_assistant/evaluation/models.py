@@ -104,3 +104,24 @@ class EvalReport:
         for key in sorted(ranking_keys):
             summary[key] = self._mean([r.ranking[key] for r in positives if key in r.ranking])
         return summary
+
+    def by_category(self) -> dict[str, dict[str, float | int]]:
+        """Ranking metrics and pass rate per question category (docs/EVALUATION.md §2).
+
+        Category-level numbers are what channel ablations are judged on — an
+        overall average hides a channel that only helps (or only hurts) one
+        question shape, e.g. the graph channel on `trace` questions.
+        """
+        categories: dict[str, dict[str, float | int]] = {}
+        for category in sorted({r.category for r in self.results}):
+            members = [r for r in self.results if r.category == category]
+            positives = [r for r in members if not r.is_negative]
+            entry: dict[str, float | int] = {
+                "questions": len(members),
+                "pass_rate": self._mean([float(r.passed) for r in members]),
+            }
+            ranking_keys = {key for r in positives for key in r.ranking}
+            for key in sorted(ranking_keys):
+                entry[key] = self._mean([r.ranking[key] for r in positives if key in r.ranking])
+            categories[category] = entry
+        return categories

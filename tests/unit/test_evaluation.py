@@ -75,6 +75,38 @@ def test_summary_aggregates_positive_and_negative_metrics() -> None:
     assert summary["pass_rate"] == round(2 / 3, 2)
 
 
+def test_by_category_groups_ranking_metrics_and_pass_rate() -> None:
+    report = EvalReport(
+        dataset="d",
+        repo_url="u",
+        results=[
+            _result(id="t1", category="trace", passed=True, ranking={"mrr": 1.0, "ndcg@10": 0.8}),
+            _result(id="t2", category="trace", passed=False, ranking={"mrr": 0.5, "ndcg@10": 0.4}),
+            _result(id="e1", category="explain", passed=True, ranking={"mrr": 1.0}),
+            _result(
+                id="n1",
+                category="negative",
+                is_negative=True,
+                refused=True,
+                n_citations=0,
+                correctness=0,
+                groundedness=0,
+                passed=True,
+            ),
+        ],
+    )
+    by_category = report.by_category()
+
+    assert set(by_category) == {"trace", "explain", "negative"}
+    assert by_category["trace"]["questions"] == 2
+    assert by_category["trace"]["mrr"] == 0.75
+    assert by_category["trace"]["ndcg@10"] == 0.6
+    assert by_category["trace"]["pass_rate"] == 0.5
+    assert by_category["explain"]["mrr"] == 1.0
+    # Negatives carry no ranking metrics, only pass rate.
+    assert by_category["negative"] == {"questions": 1, "pass_rate": 1.0}
+
+
 def test_summary_of_empty_report_is_zeroed() -> None:
     summary = EvalReport(dataset="d", repo_url="u").summary()
     assert summary["questions"] == 0

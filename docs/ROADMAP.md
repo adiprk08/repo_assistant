@@ -56,13 +56,13 @@
 
 > Sequencing note: structural work (code graph, language tiers, trace/architecture eval sets) is done first because it is cost-free and retrieval-measurable; the LLM-heavy pieces (intent router, agentic loop, hierarchical enrichment) follow, batched to manage Anthropic spend.
 
-- Code graph: imports/contains/inherits edges (high confidence) + heuristic call/reference edges with confidence scores; traversal API; graph retrieval channel
+- ✅ Code graph: imports/contains/inherits edges (high confidence) + heuristic call/reference edges with confidence scores; traversal API; graph retrieval channel — **channel measured net-negative on its own trace/architecture test and stays opt-in ([ADR-0011](adr/0011-graph-channel-disabled-by-default.md)); the graph's default-path role is agent-tool traversal (task: agent loop)**
+- ✅ Eval categories extended: `architecture` and `trace` question sets — 36-question golden set (9 trace / 6 architecture), multi-span cross-file evidence, per-category metrics in harness + reports (docs/EVALUATION.md §5)
 - Hierarchical enrichment: file/dir/repo summaries, repo map, contextual chunk descriptions (tiered by repo size)
 - Intent router (claude-haiku-4-5) + two-tier reasoning: fast path vs. budgeted agentic loop with index tools
 - Language Tier 2: Go, Java, Rust grammars + symbol queries
-- Eval categories extended: `architecture` and `trace` question sets
 
-**Exit criteria:** trace/architecture eval categories reach target grades (defined when the harness baselines them in Phase 2); agent path stays within tool budget on > 95 % of eval queries.
+**Exit criteria:** trace/architecture retrieval reaches **nDCG@10 ≥ 0.85 and recall@5 ≥ 0.90 per category** (baselines from the 2026-07-10 harness run: trace 0.76/0.81, architecture 0.85/0.89 — the agent loop and enrichment are the levers); agent path stays within tool budget on > 95 % of eval queries.
 
 ## Phase 4 — Product surface (~2 weeks)
 

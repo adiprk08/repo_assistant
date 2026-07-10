@@ -1,8 +1,13 @@
 # Benchmark repositories, pinned to a commit for reproducible evaluation
-# (docs/EVALUATION.md §2). Phase 1 starter set: two small repos that index
-# within the Voyage free-tier rate limit. Expand to medium/large + more
-# languages once a Voyage payment method lifts the 10K tokens/min cap.
+# (docs/EVALUATION.md §2). Small JS repos from the Phase 1 starter set plus
+# a medium Python repo (click, added in Phase 2 once the Voyage payment
+# method lifted the 10K tokens/min cap).
 repos:
+  - name: click
+    url: https://github.com/pallets/click
+    commit: b67832c2167e5b0ff6764a8c04a0a9087e697b5a
+    language: python
+    size: medium
   - name: is-plain-obj
     url: https://github.com/sindresorhus/is-plain-obj
     commit: 97f38e8836f86a642cce98fc6ab3058bc36df181

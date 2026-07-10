@@ -237,7 +237,7 @@ async def _eval(
 
 
 def _print_eval_summary(reports) -> None:
-    from repo_assistant.evaluation.harness import _overall
+    from repo_assistant.evaluation.harness import _overall, overall_by_category
 
     typer.secho("\nEvaluation baseline", fg=typer.colors.CYAN, bold=True)
     for report in reports:
@@ -247,6 +247,10 @@ def _print_eval_summary(reports) -> None:
     typer.secho("\n  OVERALL", fg=typer.colors.CYAN, bold=True)
     for metric, value in _overall(reports).items():
         typer.echo(f"    {metric:24} {value}")
+    typer.secho("\n  BY CATEGORY", fg=typer.colors.CYAN, bold=True)
+    for category, entry in overall_by_category(reports).items():
+        metrics = "  ".join(f"{k}={v}" for k, v in entry.items())
+        typer.echo(f"    {category:14} {metrics}")
 
 
 def _print_answer(answer: Answer) -> None:

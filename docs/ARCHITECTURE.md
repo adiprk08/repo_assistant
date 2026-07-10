@@ -119,7 +119,7 @@ State machine per repo snapshot: `PENDING → CLONING → SCANNING → PARSING �
 ## 5. Retrieval pipeline
 
 ```
-query ──▶ understand ──▶ candidate channels (parallel) ──▶ RRF fuse ──▶ rerank ──▶ assemble context
+query ──▶ understand ──▶ candidate channels (parallel) ──▶ RRF fuse ──▶ (opt-in rerank) ──▶ assemble context
 ```
 
 1. **Query understanding** — condense the question against conversation history (rewrite follow-ups into standalone queries); extract identifier-like tokens (`CamelCase`, `snake_case`, dotted paths); classify intent (shared with the reasoning router).
@@ -127,10 +127,10 @@ query ──▶ understand ──▶ candidate channels (parallel) ──▶ RRF
    - *Dense:* semantic search over chunk embeddings.
    - *Sparse:* BM25 sparse vectors in the same Qdrant query (server-side hybrid).
    - *Symbol:* exact + trigram-fuzzy lookup against the Postgres symbol table for extracted identifiers — this channel makes `getUserById`-style queries deterministic.
-   - *Graph expansion:* when identifiers resolve to symbols, pull 1-hop neighbors (callers/callees/definitions) as candidates for trace-style questions.
+   - *Graph expansion (opt-in):* when identifiers resolve to symbols, pull 1-hop neighbors (callers/callees/definitions). Measured net-negative in default fusion — hub symbols flood RRF ([ADR-0011](adr/0011-graph-channel-disabled-by-default.md)); the graph serves the agent path's `graph_neighbors` tool instead.
    - Filters: `repo_id` always; optionally `language`, `path prefix`, `kind` (code/doc/config/summary) from query understanding.
-3. **Fusion** — Reciprocal Rank Fusion across channels (robust, no score calibration needed).
-4. **Rerank** — cross-encoder over top ~50 → top 12 (`Reranker` interface; [ADR-0004](adr/0004-vector-store-and-hybrid-retrieval.md)).
+3. **Fusion** — Reciprocal Rank Fusion across channels (robust, no score calibration needed). Default channels: dense + sparse + symbol.
+4. **Rerank (opt-in)** — cross-encoder behind the `Reranker` interface; measured net-negative for identifier queries and disabled by default ([ADR-0010](adr/0010-reranking-disabled-by-default.md)).
 5. **Context assembly** — dedupe overlapping spans; expand chunks to enclosing symbol boundaries; cap per-file share for diversity; order by file then line; prepend repo map + relevant file summaries; fit to the generation token budget with a greedy score-ordered packer.
 
 ## 6. Reasoning pipeline
