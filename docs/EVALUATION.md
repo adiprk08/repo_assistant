@@ -41,7 +41,7 @@ RAG failures compound; measuring only end-to-end answers hides whether retrieval
 
 ## 3. Judging
 
-- **Judge model:** claude-opus-4-8, rubric-scored per dimension (1–5): correctness, groundedness (claims supported by cited spans), completeness, and honesty-on-negatives. Judge sees question, answer, cited spans, and gold evidence — not the retrieval internals.
+- **Judge model:** claude-opus-4-8, rubric-scored per dimension (1–5): correctness, groundedness (claims supported by cited spans), completeness, and honesty-on-negatives. Judge sees question, answer, gold-evidence file names, and the **retrieved source excerpts the answer was grounded in** (the assembled generation context, capped for token cost) — not the retrieval internals. The excerpts are the authoritative ground truth: the judge grades correctness against them rather than its own memory of the library, which fixed a false negative where a correct answer describing recent (click 8.2) APIs was scored wrong because the judge's parametric knowledge was stale (see §5, task 24).
 - **Citation metrics are mechanical, not judged:** citation precision = fraction of emitted citations that verify against the index AND are judged relevant; citation recall = fraction of gold evidence spans covered.
 - Judge calibration: a 30-item human-graded anchor set; judge/human agreement (Cohen's κ) re-checked whenever the judge prompt or model changes.
 
@@ -156,30 +156,41 @@ blind channel fusion.
 ### Phase 3 full judged baseline — 36-question set (task 24)
 
 Full run (generation + judge) on the expanded 36-question set, default config
-(dense+sparse+symbol, no graph, no rerank), `claude-opus-4-8` generation + judge:
+(dense+sparse+symbol, no graph, no rerank), `claude-opus-4-8` generation + judge
+(evidence-aware judging, see below):
 
 | Metric | Overall | trace | architecture |
 |---|---|---|---|
-| Pass rate | 0.97 (35/36) | 1.00 | 1.00 |
-| Answer correctness (1–5) | 4.70 | — | — |
-| Groundedness (1–5) | 4.53 | — | — |
+| **Pass rate** | **1.00 (36/36)** | 1.00 | 1.00 |
+| Answer correctness (1–5) | 4.97 | — | — |
+| Groundedness (1–5) | 4.77 | — | — |
 | Citation presence | 1.00 | — | — |
 | Citation file precision | 0.97 | — | — |
 | Negative handled rate | 1.00 | — | — |
 | MRR / nDCG@10 | 0.92 / 0.77 | 1.00 / 0.76 | 1.00 / 0.85 |
 
-**The single miss was a judge artifact, not a wrong answer.** `clk-test-1`
-retrieved correctly (recall@5 1.00, 13 citations) but the judge returned prose
-with no parseable JSON on that one call; the harness scored the fallback
-`correctness=1`, failing the question. Effective answer quality on this set is
-36/36. **Fix shipped in the same change set:** the judge now retries once on
-unparseable output and has token headroom (`_JUDGE_MAX_TOKENS=512`), and rejects
-non-object JSON — covered by `tests/unit/test_judge.py`. The clean confirmation
-re-run could not complete: the Anthropic credit balance hit zero mid-run (the
-recurring depletion noted in the session handoff — a full judged eval is ~50+
-Opus calls across generation and judging). The numbers above are the last
-complete judged run; retrieval-only numbers (cost-free) are unaffected and remain
-the authority for the graph verdict.
+**Two judge bugs found and fixed getting to this clean baseline** — both surfaced
+by `clk-test-1` ("How does CliRunner invoke a command in isolation for testing?"),
+which retrieved correctly (recall@5 1.00, 13 citations) throughout:
+
+1. *Unparseable-output false negative.* On one call the judge returned prose with
+   no JSON; the fallback hard-coded `correctness=1`, indistinguishable from a
+   wrong answer and corrupting pass_rate. **Fix:** retry once on unparseable
+   output, token headroom (`_JUDGE_MAX_TOKENS=512`), reject non-object JSON.
+2. *Stale-knowledge false negative.* With parsing fixed, the judge scored the
+   (correct) answer 2/2, calling `_FDCapture`, the `capture="sys"/"fd"` param, and
+   the three-stream BytesIO output "fabricated" — all of which **do** exist in
+   `testing.py` at the pinned commit (verified against source). Root cause: the
+   judge graded correctness from its own memory of click, never seeing the code
+   (the implementation passed only gold-evidence *file names*, contradicting the
+   §3 design). **Fix:** feed the judge the retrieved source excerpts the answer
+   was grounded in and instruct it to treat them as authoritative over prior
+   knowledge. `clk-test-1` → correctness 5; overall correctness 4.73→4.97,
+   groundedness 4.53→4.77 as the judge stopped second-guessing correct answers.
+
+Both fixes are covered by `tests/unit/test_judge.py`. This is a worked example of
+the eval catching a *judge* defect, not just a system defect — the discipline
+cuts both ways.
 
 ### Phase 2 full baseline — dense+sparse+symbol (best config)
 

@@ -15,10 +15,12 @@ class _ScriptedLLM(LLMClient):
     def __init__(self, texts: list[str]) -> None:
         self._texts = texts
         self.calls = 0
+        self.last_prompt = ""
 
     async def generate(
         self, *, messages, system="", documents=None, tools=None, max_tokens=4096
     ) -> LLMResponse:
+        self.last_prompt = messages[-1].content
         text = self._texts[min(self.calls, len(self._texts) - 1)]
         self.calls += 1
         return LLMResponse(text=text)
@@ -61,6 +63,18 @@ async def test_judge_answer_ignores_non_object_json() -> None:
     llm = _ScriptedLLM(["[1, 2, 3]", "[4, 5]"])
     result = await judge_answer(llm, question="q", answer="a", expected_files=["f.py"])
     assert result.rationale == "unparseable judge output"
+
+
+async def test_judge_answer_includes_evidence_in_prompt() -> None:
+    # The source excerpts must reach the judge so it grades against real code,
+    # not its (possibly stale) memory of the library.
+    llm = _ScriptedLLM(['{"correctness": 5, "groundedness": 5, "rationale": "ok"}'])
+    evidence = "# src/click/testing.py:80-116\nclass _FDCapture:\n    ..."
+    await judge_answer(
+        llm, question="q", answer="a", expected_files=["testing.py"], evidence=evidence
+    )
+    assert "_FDCapture" in llm.last_prompt
+    assert evidence in llm.last_prompt
 
 
 async def test_judge_negative_retries_then_recovers() -> None:

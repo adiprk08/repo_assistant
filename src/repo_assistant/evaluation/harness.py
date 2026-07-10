@@ -24,12 +24,32 @@ from repo_assistant.evaluation.models import (
 from repo_assistant.reasoning import generate_answer
 from repo_assistant.reasoning.service import Answer
 from repo_assistant.retrieval import hybrid_retrieve
+from repo_assistant.retrieval.service import RetrievedChunk
 
 logger = get_logger(__name__)
 
 _CORRECTNESS_PASS = 4
 _RETRIEVE_K = 25  # rank depth for retrieval metrics; generation uses the top slice
 _GENERATE_K = 12
+_EVIDENCE_MAX_CHARS = 12000  # cap the judge's source context so token cost stays bounded
+
+
+def _format_evidence(chunks: list[RetrievedChunk]) -> str:
+    """Render the answer's grounding chunks as labeled source excerpts for the judge.
+
+    The judge grades correctness against this actual source, not its (possibly
+    stale) memory of the library — the fix for the clk-test-1 false negative
+    (docs/EVALUATION.md §3). Highest-ranked chunks come first and win the budget.
+    """
+    parts: list[str] = []
+    total = 0
+    for chunk in chunks:
+        block = f"# {chunk.path}:{chunk.start_line}-{chunk.end_line}\n{chunk.text}"
+        if total + len(block) > _EVIDENCE_MAX_CHARS:
+            break
+        parts.append(block)
+        total += len(block)
+    return "\n\n".join(parts)
 
 
 def _ranking_metrics(spec: QuestionSpec, ranked: list[RankedChunk]) -> dict[str, float]:
@@ -71,7 +91,11 @@ async def _run_question(
         )
 
     judgement = await judge_answer(
-        llm, question=spec.question, answer=answer.text, expected_files=spec.expected_files
+        llm,
+        question=spec.question,
+        answer=answer.text,
+        expected_files=spec.expected_files,
+        evidence=_format_evidence(answer.retrieved),
     )
     passed = (
         retrieval_hit and len(answer.citations) > 0 and judgement.correctness >= _CORRECTNESS_PASS

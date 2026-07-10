@@ -15,13 +15,23 @@ logger = get_logger(__name__)
 
 _JUDGE_SYSTEM = """\
 You are a strict evaluator of a code-question-answering system. You are given a \
-question, the assistant's answer, and the list of repository files that actually \
-contain the answer (the gold evidence). Score the answer on two axes from 1 to 5:
+question, the assistant's answer, the repository files that contain the answer \
+(the gold evidence), and source excerpts retrieved from those files for this \
+question. Score the answer on two axes from 1 to 5:
 
 - correctness: Is the answer factually right about the code? 5 = fully correct, \
 1 = wrong or misleading.
-- groundedness: Are the claims supported by the cited repository files rather than \
-generic knowledge? 5 = clearly grounded in these files, 1 = ungrounded.
+- groundedness: Are the claims supported by the source excerpts rather than \
+generic knowledge? 5 = clearly grounded in the excerpts, 1 = ungrounded.
+
+IMPORTANT: Treat the provided source excerpts as the authoritative ground truth \
+about this repository. Judge correctness against them, NOT against any prior \
+knowledge you have of the library — that knowledge may be outdated or describe a \
+different version. If the answer describes code that appears in the excerpts, it \
+is correct even if it conflicts with what you remember about the library. The \
+excerpts are a subset of the evidence, so an answer may correctly reference code \
+not shown; do not penalize a claim merely for being absent from the excerpts \
+unless the excerpts contradict it.
 
 Respond with ONLY a JSON object, no prose:
 {"correctness": <1-5>, "groundedness": <1-5>, "rationale": "<one sentence>"}\
@@ -104,11 +114,13 @@ async def judge_negative(llm: LLMClient, *, question: str, answer: str) -> tuple
 
 
 async def judge_answer(
-    llm: LLMClient, *, question: str, answer: str, expected_files: list[str]
+    llm: LLMClient, *, question: str, answer: str, expected_files: list[str], evidence: str = ""
 ) -> Judgement:
     prompt = (
         f"Question:\n{question}\n\n"
         f"Gold evidence files:\n{', '.join(expected_files) or '(none)'}\n\n"
+        f"Source excerpts (authoritative — grade against these, not prior knowledge):\n"
+        f"{evidence or '(none provided)'}\n\n"
         f"Assistant answer:\n{answer}\n"
     )
     data = await _judge_json(llm, system=_JUDGE_SYSTEM, prompt=prompt)
