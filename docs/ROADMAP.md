@@ -37,9 +37,9 @@
 
 **Exit criteria:** a mid-size repo (~2k files) indexes end-to-end in < 15 min; answers carry verified citations; starter-set answer accuracy recorded as the baseline.
 
-## Phase 2 — Retrieval quality + evaluation harness (~2 weeks)
+## Phase 2 — Retrieval quality + evaluation harness (~2 weeks) — ✅ COMPLETE (2026-07-10)
 
-**Goal:** measurably better retrieval, and the machinery to prove it.
+**Goal:** measurably better retrieval, and the machinery to prove it. **Met:** MRR 0.65→0.86, nDCG 0.67→0.87 (+21/+20 over the dense baseline) via dense+sparse(BM25)+symbol RRF fusion; reranking evaluated and rejected ([ADR-0010](adr/0010-reranking-disabled-by-default.md)); span-level metrics + DB persistence + CI gate in place. Query understanding: identifier extraction shipped (powers the symbol channel); **follow-up condensation deferred to Phase 4** (needs conversation memory); metadata-filter inference dropped as low-value (recall already saturated).
 
 - Eval harness (extends the Phase 1 starter — `ra eval`, LLM judge, citation + negative-handling metrics already exist): add span-level retrieval metrics (recall@k, MRR, nDCG) against labeled evidence, DB-persisted `eval_runs`/`eval_results`, and a CI smoke gate
 - Hybrid retrieval: BM25 sparse vectors in Qdrant, server-side hybrid + RRF
@@ -50,9 +50,11 @@
 
 **Exit criteria:** retrieval recall@10 improves ≥ 15 points over the Phase 1 dense-only baseline on the golden set; eval runs in CI on every PR touching retrieval.
 
-## Phase 3 — Deep code understanding (~3 weeks)
+## Phase 3 — Deep code understanding (~3 weeks) — IN PROGRESS (2026-07-10)
 
 **Goal:** answer questions no single chunk can answer.
+
+> Sequencing note: structural work (code graph, language tiers, trace/architecture eval sets) is done first because it is cost-free and retrieval-measurable; the LLM-heavy pieces (intent router, agentic loop, hierarchical enrichment) follow, batched to manage Anthropic spend.
 
 - Code graph: imports/contains/inherits edges (high confidence) + heuristic call/reference edges with confidence scores; traversal API; graph retrieval channel
 - Hierarchical enrichment: file/dir/repo summaries, repo map, contextual chunk descriptions (tiered by repo size)
