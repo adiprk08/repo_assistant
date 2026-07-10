@@ -53,10 +53,16 @@ async def answer_question(
     llm: LLMClient,
     history: list[Message] | None = None,
     limit: int = 12,
+    filters: dict[str, object] | None = None,
 ) -> Answer:
     """Answer ``question`` about a repo, grounded in retrieved chunks with verified citations."""
     retrieved = await retrieve(
-        repo_id, question, embedder=embedder, vector_index=vector_index, limit=limit
+        repo_id,
+        question,
+        embedder=embedder,
+        vector_index=vector_index,
+        limit=limit,
+        filters=filters,
     )
     if not retrieved:
         return Answer(text=_REFUSAL, citations=[], retrieved=[], refused=True)

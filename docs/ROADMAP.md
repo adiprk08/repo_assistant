@@ -32,7 +32,7 @@
 - Indexing: voyage-code-3 embeddings with content-hash cache; Qdrant dense index; Postgres files/symbols/chunks
 - Retrieval: dense-only top-k with repo filter
 - Reasoning: single-pass grounded generation (claude-opus-4-8) with native citations + post-hoc citation verification
-- CLI: `ra index <github-url>`, `ra chat <repo>` (streaming)
+- CLI: `ra index <github-url>`, `ra chat <repo>` (non-streaming; token-streaming over SSE lands with the API service in Phase 4)
 - Starter eval set: ~30 hand-written Q&A pairs over 2 benchmark repos (smoke baseline)
 
 **Exit criteria:** a mid-size repo (~2k files) indexes end-to-end in < 15 min; answers carry verified citations; starter-set answer accuracy recorded as the baseline.

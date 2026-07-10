@@ -1,8 +1,19 @@
+"""Repo Assistant CLI: index a repository and chat with it (Phase 1)."""
+
+import asyncio
+
 import typer
 
 from repo_assistant import __version__
+from repo_assistant.core.errors import NotFoundError, ProviderError
+from repo_assistant.reasoning import answer_question
+from repo_assistant.reasoning.service import Answer
 
-app = typer.Typer(name="ra", help="Repo Assistant - a RAG-powered GitHub repository assistant.")
+app = typer.Typer(
+    name="ra",
+    help="Repo Assistant - a RAG-powered GitHub repository assistant.",
+    no_args_is_help=True,
+)
 
 
 @app.command()
@@ -12,15 +23,104 @@ def version() -> None:
 
 
 @app.command()
-def index(github_url: str) -> None:
-    """Clone, parse, and index a GitHub repository. (Implemented in Phase 1.)"""
-    raise NotImplementedError("`ra index` lands in Phase 1 — see docs/ROADMAP.md")
+def index(
+    github_url: str = typer.Argument(..., help="Public GitHub repository URL."),
+    ref: str | None = typer.Option(None, "--ref", help="Branch, tag, or commit to index."),
+) -> None:
+    """Clone, parse, and index a GitHub repository."""
+    asyncio.run(_index(github_url, ref))
 
 
 @app.command()
-def chat(repo: str) -> None:
-    """Start an interactive, cited chat session over an indexed repository. (Implemented in Phase 1.)"""
-    raise NotImplementedError("`ra chat` lands in Phase 1 — see docs/ROADMAP.md")
+def chat(
+    repo: str = typer.Argument(..., help="Repository URL or id of an already-indexed repo."),
+) -> None:
+    """Start an interactive, cited chat session over an indexed repository."""
+    asyncio.run(_chat(repo))
+
+
+async def _index(github_url: str, ref: str | None) -> None:
+    from repo_assistant.cli.runtime import build_runtime
+    from repo_assistant.indexing.pipeline import index_repository
+
+    runtime = build_runtime()
+    try:
+        typer.echo(f"Indexing {github_url} ...")
+        result = await index_repository(
+            github_url,
+            embedder=runtime.embedder(),
+            vector_index=runtime.vector_index,
+            session_factory=runtime.session_factory,
+            ref=ref,
+        )
+    except ProviderError as exc:
+        raise typer.Exit(code=_fail(str(exc))) from exc
+    finally:
+        await runtime.aclose()
+
+    typer.secho("\nIndexed successfully.", fg=typer.colors.GREEN, bold=True)
+    typer.echo(f"  repo id:  {result.repo_id}")
+    typer.echo(f"  commit:   {result.commit_sha[:12]}")
+    typer.echo(f"  files:    {result.n_files}")
+    typer.echo(f"  chunks:   {result.n_chunks}")
+    typer.echo(f"  symbols:  {result.n_symbols}")
+    typer.echo(f"\nChat with it:  ra chat {result.repo_id}")
+
+
+async def _chat(identifier: str) -> None:
+    from repo_assistant.cli.runtime import build_runtime, resolve_indexed_repo
+
+    runtime = build_runtime()
+    try:
+        try:
+            resolved = await resolve_indexed_repo(runtime, identifier)
+        except NotFoundError as exc:
+            raise typer.Exit(code=_fail(str(exc))) from exc
+
+        embedder = runtime.embedder()
+        llm = runtime.llm()
+        typer.secho(f"Chatting with {resolved.url} @ {resolved.commit_sha[:12]}", bold=True)
+        typer.echo("Ask a question (empty line or Ctrl-C to quit).\n")
+
+        while True:
+            try:
+                question = typer.prompt("you").strip()
+            except (EOFError, KeyboardInterrupt, typer.Abort):
+                typer.echo("\nBye.")
+                break
+            if not question:
+                typer.echo("Bye.")
+                break
+            try:
+                answer = await answer_question(
+                    str(resolved.repo_id),
+                    question,
+                    embedder=embedder,
+                    vector_index=runtime.vector_index,
+                    llm=llm,
+                    filters={"commit": resolved.commit_sha},
+                )
+            except ProviderError as exc:
+                typer.secho(f"  provider error: {exc}", fg=typer.colors.RED)
+                continue
+            _print_answer(answer)
+    finally:
+        await runtime.aclose()
+
+
+def _print_answer(answer: Answer) -> None:
+    typer.secho("\nassistant", fg=typer.colors.CYAN, bold=True)
+    typer.echo(answer.text)
+    if answer.citations:
+        typer.secho("\nsources:", fg=typer.colors.BLUE)
+        for citation in answer.citations:
+            typer.echo(f"  - {citation.label()}@{citation.commit[:12]}")
+    typer.echo()
+
+
+def _fail(message: str) -> int:
+    typer.secho(f"Error: {message}", fg=typer.colors.RED, err=True)
+    return 1
 
 
 if __name__ == "__main__":
