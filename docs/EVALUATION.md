@@ -78,6 +78,26 @@ small methods where dense embeddings can't distinguish which method chunk is mos
 Phase 2's symbol channel, hybrid BM25, and reranking all target getting the right span to
 rank 1 — so the target is **MRR/nDCG up**, not recall (already ~1.0).
 
+### Symbol channel added (task 17) — same 26 questions
+
+Hybrid = dense + trigram symbol channel, RRF-fused. Measured against the dense-only
+reference above (ablation: `ra eval --dense-only` vs `ra eval`).
+
+| Metric (overall) | Dense-only | Hybrid | Δ |
+|---|---|---|---|
+| recall@5 | 0.90 | 1.00 | +0.10 |
+| MRR | 0.65 | **0.82** | **+0.17** |
+| nDCG@10 | 0.67 | **0.84** | **+0.17** |
+| Pass rate | 0.96 | 1.00 | +0.04 |
+
+Meets the Phase 2 ≥15-point ranking target on the symbol channel alone. Per-repo MRR:
+`yocto-queue` 0.27→1.00 (exact matches on `enqueue`/`drain` nail method questions),
+`is-plain-obj` 0.64→0.81, but **`click` 0.94→0.69 regressed**: with 1,886 symbols and many
+homonyms (a dozen `convert` methods, multiple `invoke`s), an identifier query floods the
+symbol channel with equally-scored matches that RRF lets crowd out the relevant dense hit.
+The channel trades precision for recall on large repos — the motivation for cross-encoder
+reranking (task 19), which restores order over the fused candidates.
+
 ### Phase 1 starter (superseded) — 16 questions, 2 tiny JS repos
 
 Pass rate 1.00, correctness 4.83. Recall was near-trivially 1.0 (one obvious evidence file
