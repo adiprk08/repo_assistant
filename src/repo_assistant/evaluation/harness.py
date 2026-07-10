@@ -186,3 +186,51 @@ def _overall(reports: list[EvalReport]) -> dict[str, float | int]:
         return {}
     combined = EvalReport(dataset="overall", repo_url="", results=all_results)
     return combined.summary()
+
+
+async def persist_report(reports: list[EvalReport], config: dict, runtime: Runtime) -> None:
+    """Store the run and its per-question results (docs/EVALUATION.md §4)."""
+    from repo_assistant.storage.models import EvalResult, EvalRun
+
+    async with runtime.session_factory() as session:
+        run = EvalRun(
+            config=config,
+            overall=_overall(reports),
+            per_dataset={r.dataset: r.summary() for r in reports},
+        )
+        session.add(run)
+        await session.flush()
+        for report in reports:
+            for qr in report.results:
+                session.add(
+                    EvalResult(
+                        run_id=run.id,
+                        dataset=report.dataset,
+                        question_id=qr.id,
+                        category=qr.category,
+                        passed=qr.passed,
+                        ranking=qr.ranking,
+                        metrics={
+                            "correctness": qr.correctness,
+                            "groundedness": qr.groundedness,
+                            "n_citations": qr.n_citations,
+                            "retrieval_hit": qr.retrieval_hit,
+                        },
+                    )
+                )
+        await session.commit()
+
+
+# Regression floors for the CI smoke gate — a change may not drop overall retrieval
+# below these (set below the recorded dense+sparse+symbol baseline to absorb noise).
+GATE_FLOORS: dict[str, float] = {"recall@10": 0.90, "mrr": 0.70, "ndcg@10": 0.70}
+
+
+def gate_failures(overall: dict[str, float | int]) -> list[str]:
+    """Return human-readable messages for any metric below its regression floor."""
+    failures = []
+    for metric, floor in GATE_FLOORS.items():
+        value = float(overall.get(metric, 0.0))
+        if value < floor:
+            failures.append(f"{metric} {value:.3f} < floor {floor:.2f}")
+    return failures

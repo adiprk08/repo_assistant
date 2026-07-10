@@ -81,6 +81,22 @@ def test_summary_of_empty_report_is_zeroed() -> None:
     assert summary["retrieval_recall"] == 0.0
 
 
+def test_gate_passes_above_floors_and_fails_below() -> None:
+    from repo_assistant.evaluation.harness import GATE_FLOORS, gate_failures
+
+    good = {"recall@10": 1.0, "mrr": 0.86, "ndcg@10": 0.87}
+    assert gate_failures(good) == []
+
+    bad = {"recall@10": 0.5, "mrr": 0.86, "ndcg@10": 0.87}
+    failures = gate_failures(bad)
+    assert len(failures) == 1
+    assert "recall@10" in failures[0]
+
+    # A metric missing from `overall` counts as 0 -> fails.
+    assert any("mrr" in f for f in gate_failures({"recall@10": 1.0, "ndcg@10": 0.9}))
+    assert set(GATE_FLOORS) == {"recall@10", "mrr", "ndcg@10"}
+
+
 def test_shipped_datasets_are_valid() -> None:
     # The golden datasets we ship must load and be well-formed.
     for path in sorted(Path("evals/datasets").glob("*.yaml")):

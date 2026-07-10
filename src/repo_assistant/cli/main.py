@@ -59,6 +59,9 @@ def eval(
         "--retrieval-only",
         help="Score retrieval metrics only (no generation/judge, no LLM cost).",
     ),
+    gate: bool = typer.Option(
+        False, "--gate", help="Exit non-zero if overall retrieval drops below the regression floor."
+    ),
 ) -> None:
     """Run the golden evaluation datasets and record a baseline report."""
     from pathlib import Path
@@ -73,6 +76,7 @@ def eval(
             use_sparse=not dense_only and not no_sparse,
             use_rerank=rerank,
             retrieval_only=retrieval_only,
+            gate=gate,
         )
     )
 
@@ -158,15 +162,22 @@ async def _eval(
     use_sparse: bool,
     use_rerank: bool,
     retrieval_only: bool,
+    gate: bool,
 ) -> None:
     from pathlib import Path
 
     from repo_assistant.cli.runtime import build_runtime
     from repo_assistant.evaluation import DatasetSpec, run_dataset
-    from repo_assistant.evaluation.harness import write_report
+    from repo_assistant.evaluation.harness import (
+        _overall,
+        gate_failures,
+        persist_report,
+        write_report,
+    )
 
     runtime = build_runtime()
     reports = []
+    gate_msgs: list[str] = []
     try:
         for path in dataset_paths:
             dataset = DatasetSpec.from_yaml(path)
@@ -195,11 +206,20 @@ async def _eval(
             "mode": "retrieval-only" if retrieval_only else "full",
         }
         report_path = write_report(reports, config, Path("evals/reports"))
+        await persist_report(reports, config, runtime)
+        if gate:
+            gate_msgs = gate_failures(_overall(reports))
     finally:
         await runtime.aclose()
 
     _print_eval_summary(reports)
     typer.secho(f"\nReport written to {report_path}", fg=typer.colors.GREEN)
+    if gate and gate_msgs:
+        for msg in gate_msgs:
+            typer.secho(f"GATE FAIL: {msg}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+    if gate:
+        typer.secho("GATE PASS", fg=typer.colors.GREEN)
 
 
 def _print_eval_summary(reports) -> None:

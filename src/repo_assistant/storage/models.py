@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -137,3 +137,33 @@ class Job(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class EvalRun(Base):
+    """One evaluation run, with the config snapshot so any two runs are diffable
+    (docs/EVALUATION.md §4). ``overall`` holds the aggregated summary metrics."""
+
+    __tablename__ = "eval_runs"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    config: Mapped[dict] = mapped_column(JSONB, default=dict)
+    overall: Mapped[dict] = mapped_column(JSONB, default=dict)
+    per_dataset: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class EvalResult(Base):
+    """Per-question result within an eval run (metrics + verdict)."""
+
+    __tablename__ = "eval_results"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("eval_runs.id"))
+    dataset: Mapped[str] = mapped_column(String)
+    question_id: Mapped[str] = mapped_column(String)
+    category: Mapped[str] = mapped_column(String)
+    passed: Mapped[bool] = mapped_column(Boolean)
+    ranking: Mapped[dict] = mapped_column(JSONB, default=dict)
+    metrics: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    __table_args__ = (Index("ix_eval_results_run", "run_id"),)

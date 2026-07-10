@@ -1,0 +1,58 @@
+# Retrieval smoke gate (docs/EVALUATION.md §4). Indexes the benchmark repos and
+# runs the retrieval-only ablation with --gate, failing the build if overall
+# retrieval drops below the regression floor. No LLM generation/judging, so the
+# only external cost is Voyage embeddings (well within the free allowance).
+#
+# Requires the repo secret RA_VOYAGE_API_KEY. Skipped for PRs from forks, which
+# cannot access secrets.
+name: Retrieval gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "src/repo_assistant/retrieval/**"
+      - "src/repo_assistant/chunking/**"
+      - "src/repo_assistant/indexing/**"
+      - "src/repo_assistant/parsing/**"
+      - "src/repo_assistant/core/sparse.py"
+      - "evals/**"
+
+jobs:
+  retrieval-gate:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: repo_assistant
+          POSTGRES_PASSWORD: repo_assistant
+          POSTGRES_DB: repo_assistant
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U repo_assistant"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      qdrant:
+        image: qdrant/qdrant:v1.15.1
+        ports: ["6333:6333"]
+    env:
+      RA_VOYAGE_API_KEY: ${{ secrets.RA_VOYAGE_API_KEY }}
+      RA_POSTGRES_DSN: postgresql+asyncpg://repo_assistant:repo_assistant@localhost:5432/repo_assistant
+      RA_QDRANT_URL: http://localhost:6333
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --all-groups
+      - run: uv run alembic upgrade head
+      - name: Index benchmark repos
+        run: |
+          uv run ra index https://github.com/sindresorhus/is-plain-obj
+          uv run ra index https://github.com/sindresorhus/yocto-queue
+          uv run ra index https://github.com/pallets/click
+      - name: Retrieval gate
+        run: uv run ra eval --retrieval-only --gate

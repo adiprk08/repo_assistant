@@ -48,7 +48,7 @@ RAG failures compound; measuring only end-to-end answers hides whether retrieval
 ## 4. Execution and gates
 
 - `ra eval run [--suite smoke|full] [--repo ...]` — results to Postgres (`eval_runs`, `eval_results`) with the config snapshot (embedder, chunker params, model IDs, prompt hashes) for every run, so any two runs are diffable.
-- **CI (per PR touching retrieval/reasoning/chunking):** smoke suite (1 small repo, ~40 questions, retrieval metrics + citation validity only — no judge, keeps it fast/cheap). Gate: retrieval recall@10 and citation validity may not drop > 2 points vs. main.
+- **CI (per PR touching retrieval/chunking/indexing):** `ra eval --retrieval-only --gate` indexes the benchmark repos and enforces regression floors (recall@10 ≥ 0.90, MRR ≥ 0.70, nDCG@10 ≥ 0.70) — no judge, so the only cost is Voyage embeddings. Implemented in `.github/workflows/retrieval-eval.yml` (requires the `RA_VOYAGE_API_KEY` repo secret; skipped for fork PRs).
 - **Nightly:** full suite including judge grading; trend dashboard; regressions open issues automatically.
 - **Ablations on demand:** the harness accepts config overrides (e.g. `--no-rerank`, `--dense-only`, `--no-context-headers`) so every architecture claim in the ADRs stays empirically backed.
 
@@ -97,6 +97,24 @@ homonyms (a dozen `convert` methods, multiple `invoke`s), an identifier query fl
 symbol channel with equally-scored matches that RRF lets crowd out the relevant dense hit.
 The channel trades precision for recall on large repos — the motivation for cross-encoder
 reranking (task 19), which restores order over the fused candidates.
+
+### Phase 2 full baseline — dense+sparse+symbol (best config)
+
+Full run (generation + judge) on the 26-question set, `claude-opus-4-8` judge:
+
+| Metric | Overall |
+|---|---|
+| recall@5 / MRR / nDCG@10 | 1.00 / 0.86 / 0.87 |
+| Answer correctness (1–5) | 4.70 |
+| Groundedness (1–5) | 4.50 |
+| Citation presence | 1.00 |
+| Citation file precision | 1.00 (was 0.92 dense-only) |
+| Negative handled rate | 1.00 |
+| **Pass rate** | **1.00 (26/26)** |
+
+The retrieval gains flowed through to grounding — citation file precision rose to 1.00.
+Runs are persisted to `eval_runs`/`eval_results`; `ra eval --retrieval-only --gate`
+enforces the regression floors in CI (docs §4).
 
 ### Sparse BM25 channel added (task 18) — retrieval-only ablation
 
