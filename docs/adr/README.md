@@ -13,3 +13,4 @@ Format: Status / Context / Decision / Alternatives considered / Consequences. AD
 | [0007](0007-llm-provider-and-models.md) | Anthropic API, tiered models, prompt caching, native citations | Accepted |
 | [0008](0008-job-queue.md) | arq + Redis with checkpointed pipeline stages | Accepted |
 | [0009](0009-multitenancy-and-versioning.md) | Payload-partitioned multitenancy; commit-pinned snapshots | Accepted |
+| [0010](0010-reranking-disabled-by-default.md) | Reranking disabled by default (measured net-negative) | Accepted |

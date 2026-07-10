@@ -17,6 +17,7 @@ from repo_assistant.core.interfaces import (
 from repo_assistant.core.logging import get_logger
 from repo_assistant.reasoning.citations import VerifiedCitation, verify_citations
 from repo_assistant.reasoning.prompts import SYSTEM_PROMPT
+from repo_assistant.retrieval.assembly import assemble_context
 from repo_assistant.retrieval.service import RetrievedChunk, retrieve
 
 logger = get_logger(__name__)
@@ -50,19 +51,26 @@ async def generate_answer(
     *,
     llm: LLMClient,
     history: list[Message] | None = None,
+    context_limit: int = 12,
 ) -> Answer:
-    """Generate a grounded, citation-verified answer from already-retrieved chunks."""
-    if not retrieved:
+    """Generate a grounded, citation-verified answer from already-retrieved chunks.
+
+    The retrieved chunks are assembled first — overlapping spans deduped and each
+    file capped — so the model gets diverse, non-redundant context and citations
+    don't pile up on the same lines.
+    """
+    context = assemble_context(retrieved, limit=context_limit)
+    if not context:
         return Answer(text=_REFUSAL, citations=[], retrieved=[], refused=True)
 
     messages = [*(history or []), Message(role="user", content=question)]
     response = await llm.generate(
         messages=messages,
         system=SYSTEM_PROMPT,
-        documents=_documents(retrieved),
+        documents=_documents(context),
     )
 
-    citations = verify_citations(response.citations, retrieved)
+    citations = verify_citations(response.citations, context)
     dropped = len(response.citations) - len(citations)
     if dropped:
         logger.warning("dropped unverified citations", dropped=dropped, kept=len(citations))
@@ -70,7 +78,7 @@ async def generate_answer(
     return Answer(
         text=response.text,
         citations=citations,
-        retrieved=retrieved,
+        retrieved=context,
         usage=response.usage,
         refused=False,
     )

@@ -1,6 +1,6 @@
 # ADR-0004: Qdrant + native hybrid retrieval + cross-encoder reranking
 
-**Status:** Accepted (2026-07-07)
+**Status:** Accepted (2026-07-07) — the cross-encoder-reranking clause is superseded by [ADR-0010](0010-reranking-disabled-by-default.md) (reranking measured net-negative, disabled by default). Qdrant, hybrid retrieval, and RRF stand.
 
 ## Context
 

@@ -8,15 +8,17 @@ tests inject fakes directly rather than going through the factory.
 
 from repo_assistant.core.config import Settings, get_settings
 from repo_assistant.core.errors import ProviderError
-from repo_assistant.core.interfaces import Embedder, LLMClient
+from repo_assistant.core.interfaces import Embedder, LLMClient, Reranker
 from repo_assistant.providers.anthropic_client import AnthropicLLMClient
-from repo_assistant.providers.voyage import VoyageEmbedder
+from repo_assistant.providers.voyage import VoyageEmbedder, VoyageReranker
 
 __all__ = [
     "AnthropicLLMClient",
     "VoyageEmbedder",
+    "VoyageReranker",
     "get_embedder",
     "get_llm_client",
+    "get_reranker",
 ]
 
 
@@ -39,3 +41,11 @@ def get_llm_client(settings: Settings | None = None) -> LLMClient:
     if not settings.anthropic_api_key:
         raise ProviderError("No LLM provider configured: set RA_ANTHROPIC_API_KEY.")
     return AnthropicLLMClient(api_key=settings.anthropic_api_key, model=settings.generation_model)
+
+
+def get_reranker(settings: Settings | None = None) -> Reranker | None:
+    """Return the reranker, or None when no provider is configured (rerank is optional)."""
+    settings = settings or get_settings()
+    if not settings.voyage_api_key:
+        return None
+    return VoyageReranker(api_key=settings.voyage_api_key, model=settings.reranker_model)

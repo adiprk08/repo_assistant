@@ -46,6 +46,16 @@ def eval(
     dense_only: bool = typer.Option(
         False, "--dense-only", help="Ablation: dense channel only (disable the symbol channel)."
     ),
+    rerank: bool = typer.Option(
+        False,
+        "--rerank",
+        help="Enable cross-encoder reranking (off by default; measured net-negative).",
+    ),
+    retrieval_only: bool = typer.Option(
+        False,
+        "--retrieval-only",
+        help="Score retrieval metrics only (no generation/judge, no LLM cost).",
+    ),
 ) -> None:
     """Run the golden evaluation datasets and record a baseline report."""
     from pathlib import Path
@@ -53,7 +63,14 @@ def eval(
     dataset_paths = sorted(Path(datasets_dir).glob("*.yaml"))
     if not dataset_paths:
         raise typer.Exit(code=_fail(f"No datasets found in {datasets_dir}"))
-    asyncio.run(_eval(dataset_paths, use_symbols=not dense_only))
+    asyncio.run(
+        _eval(
+            dataset_paths,
+            use_symbols=not dense_only,
+            use_rerank=rerank,
+            retrieval_only=retrieval_only,
+        )
+    )
 
 
 async def _index(github_url: str, ref: str | None) -> None:
@@ -96,6 +113,8 @@ async def _chat(identifier: str) -> None:
 
         embedder = runtime.embedder()
         llm = runtime.llm()
+        # Reranking measured net-negative on code retrieval (docs/EVALUATION.md §5);
+        # the RRF-fused dense+symbol order is used directly.
         typer.secho(f"Chatting with {resolved.url} @ {resolved.commit_sha[:12]}", bold=True)
         typer.echo("Ask a question (empty line or Ctrl-C to quit).\n")
 
@@ -117,6 +136,7 @@ async def _chat(identifier: str) -> None:
                     vector_index=runtime.vector_index,
                     session_factory=runtime.session_factory,
                     commit=resolved.commit_sha,
+                    use_rerank=False,
                 )
                 answer = await generate_answer(question, retrieved, llm=llm)
             except ProviderError as exc:
@@ -127,7 +147,9 @@ async def _chat(identifier: str) -> None:
         await runtime.aclose()
 
 
-async def _eval(dataset_paths: list, *, use_symbols: bool) -> None:
+async def _eval(
+    dataset_paths: list, *, use_symbols: bool, use_rerank: bool, retrieval_only: bool
+) -> None:
     from pathlib import Path
 
     from repo_assistant.cli.runtime import build_runtime
@@ -141,15 +163,26 @@ async def _eval(dataset_paths: list, *, use_symbols: bool) -> None:
             dataset = DatasetSpec.from_yaml(path)
             typer.echo(f"Evaluating {path.stem} ({len(dataset.questions)} questions) ...")
             try:
-                reports.append(await run_dataset(dataset, runtime, use_symbols=use_symbols))
+                reports.append(
+                    await run_dataset(
+                        dataset,
+                        runtime,
+                        use_symbols=use_symbols,
+                        use_rerank=use_rerank,
+                        retrieval_only=retrieval_only,
+                    )
+                )
             except (NotFoundError, ProviderError) as exc:
                 raise typer.Exit(code=_fail(str(exc))) from exc
 
+        channels = "dense" + ("+symbol" if use_symbols else "")
         config = {
-            "generation_model": runtime.settings.generation_model,
+            "generation_model": None if retrieval_only else runtime.settings.generation_model,
             "embedding_model": runtime.settings.embedding_model,
             "embedding_dimensions": runtime.settings.embedding_dimensions,
-            "retrieval": "hybrid(dense+symbol)" if use_symbols else "dense-only",
+            "reranker_model": runtime.settings.reranker_model if use_rerank else None,
+            "retrieval": f"{channels}{' +rerank' if use_rerank else ''}",
+            "mode": "retrieval-only" if retrieval_only else "full",
         }
         report_path = write_report(reports, config, Path("evals/reports"))
     finally:

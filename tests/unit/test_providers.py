@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 from repo_assistant.core.interfaces import Document, Message
 from repo_assistant.providers.anthropic_client import AnthropicLLMClient, _build_messages
-from repo_assistant.providers.voyage import VoyageEmbedder, _batches
+from repo_assistant.providers.voyage import VoyageEmbedder, VoyageReranker, _batches
 
 # --- Voyage embedder ---------------------------------------------------------
 
@@ -44,6 +44,25 @@ async def test_voyage_embed_batches_and_flattens(monkeypatch) -> None:
 async def test_voyage_embed_empty_is_noop() -> None:
     embedder = VoyageEmbedder(api_key="test-key")
     assert await embedder.embed([]) == []
+
+
+async def test_voyage_reranker_parses_and_orders_results(monkeypatch) -> None:
+    reranker = VoyageReranker(api_key="test-key")
+    response = SimpleNamespace(
+        results=[
+            SimpleNamespace(index=2, relevance_score=0.9),
+            SimpleNamespace(index=0, relevance_score=0.4),
+        ]
+    )
+    monkeypatch.setattr(reranker._client, "rerank", AsyncMock(return_value=response))
+
+    out = await reranker.rerank(query="q", documents=["a", "b", "c"], top_k=2)
+    assert [(r.index, r.score) for r in out] == [(2, 0.9), (0, 0.4)]
+
+
+async def test_voyage_reranker_empty_is_noop() -> None:
+    reranker = VoyageReranker(api_key="test-key")
+    assert await reranker.rerank(query="q", documents=[], top_k=5) == []
 
 
 # --- Anthropic client --------------------------------------------------------

@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from repo_assistant.core.interfaces import Embedder, SearchResult, VectorIndex
+from repo_assistant.core.interfaces import Embedder, Reranker, SearchResult, VectorIndex
 from repo_assistant.core.logging import get_logger
 from repo_assistant.retrieval.fusion import reciprocal_rank_fusion
 from repo_assistant.retrieval.symbols import symbol_search
@@ -67,6 +67,32 @@ async def retrieve(
     return chunks
 
 
+async def _rerank(
+    reranker: Reranker, query: str, chunks: list[RetrievedChunk], *, limit: int
+) -> list[RetrievedChunk]:
+    """Reorder chunks by cross-encoder relevance, keeping the top ``limit``."""
+    results = await reranker.rerank(
+        query=query, documents=[c.text for c in chunks], top_k=min(limit, len(chunks))
+    )
+    reranked: list[RetrievedChunk] = []
+    for result in results:
+        original = chunks[result.index]
+        reranked.append(
+            RetrievedChunk(
+                chunk_id=original.chunk_id,
+                path=original.path,
+                text=original.text,
+                start_line=original.start_line,
+                end_line=original.end_line,
+                commit=original.commit,
+                symbol=original.symbol,
+                language=original.language,
+                score=result.score,
+            )
+        )
+    return reranked
+
+
 async def hybrid_retrieve(
     repo_id: str,
     snapshot_id: str,
@@ -75,16 +101,19 @@ async def hybrid_retrieve(
     embedder: Embedder,
     vector_index: VectorIndex,
     session_factory: async_sessionmaker[AsyncSession],
+    reranker: Reranker | None = None,
     commit: str | None = None,
     limit: int = 12,
     dense_k: int = 25,
+    rerank_k: int = 50,
     use_symbols: bool = True,
+    use_rerank: bool = True,
 ) -> list[RetrievedChunk]:
-    """Retrieve by fusing the dense vector channel with the symbol-lookup channel.
+    """Retrieve by fusing the dense and symbol channels, then optionally reranking.
 
-    Channels each produce a ranked list of chunk ids; RRF fuses them, then the
-    fused top-``limit`` chunks are materialized (dense payloads reused, any
-    symbol-only chunks fetched by id).
+    Channels each produce a ranked list of chunk ids; RRF fuses them, the fused
+    top candidates are materialized (dense payloads reused, symbol-only chunks
+    fetched by id), and a cross-encoder reranks them to the final top-``limit``.
     """
     if not query.strip():
         return []
@@ -102,18 +131,30 @@ async def hybrid_retrieve(
         if symbol_ids:
             rankings.append(symbol_ids)
 
-    fused = reciprocal_rank_fusion(rankings)[:limit]
+    # Rerank a generous candidate pool, then trim to `limit`; without reranking the
+    # fused order itself is the result.
+    pool = rerank_k if (reranker is not None and use_rerank) else limit
+    fused = reciprocal_rank_fusion(rankings)[:pool]
     missing = [cid for cid, _ in fused if cid not in payloads]
     if missing:
         for result in await vector_index.fetch(repo_id=repo_id, ids=missing):
             payloads[result.id] = result
 
     chunks = [_to_chunk(payloads[cid], score=score) for cid, score in fused if cid in payloads]
+
+    reranked = False
+    if reranker is not None and use_rerank and chunks:
+        chunks = await _rerank(reranker, query, chunks, limit=limit)
+        reranked = True
+    else:
+        chunks = chunks[:limit]
+
     logger.info(
         "hybrid retrieved",
         repo_id=repo_id,
         channels=len(rankings),
         hits=len(chunks),
         use_symbols=use_symbols,
+        reranked=reranked,
     )
     return chunks

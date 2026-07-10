@@ -12,11 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from repo_assistant.core.config import Settings, get_settings
 from repo_assistant.core.errors import NotFoundError
-from repo_assistant.core.interfaces import Embedder, LLMClient
+from repo_assistant.core.interfaces import Embedder, LLMClient, Reranker
 from repo_assistant.indexing.cache import CachingEmbedder, EmbeddingCacheStore
 from repo_assistant.indexing.qdrant_index import QdrantVectorIndex
 from repo_assistant.ingestion.git import normalize_github_url
-from repo_assistant.providers import get_embedder, get_llm_client
+from repo_assistant.providers import get_embedder, get_llm_client, get_reranker
 from repo_assistant.storage import repositories as repo
 from repo_assistant.storage.db import make_engine, make_session_factory
 from repo_assistant.storage.models import Repo
@@ -35,6 +35,9 @@ class Runtime:
 
     def llm(self) -> LLMClient:
         return get_llm_client(self.settings)
+
+    def reranker(self) -> Reranker | None:
+        return get_reranker(self.settings)
 
     async def aclose(self) -> None:
         await self.vector_index._client.close()

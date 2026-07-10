@@ -12,7 +12,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from voyageai.client_async import AsyncClient
 
 from repo_assistant.core.errors import ProviderError
-from repo_assistant.core.interfaces import Embedder, InputType
+from repo_assistant.core.interfaces import Embedder, InputType, Reranker, RerankResult
 from repo_assistant.core.logging import get_logger
 from repo_assistant.core.tokens import estimate_tokens
 
@@ -94,3 +94,32 @@ class VoyageEmbedder(Embedder):
         except voyage_error.VoyageError as exc:
             raise ProviderError(f"Voyage embedding failed: {exc}") from exc
         return embeddings
+
+
+class VoyageReranker(Reranker):
+    """Cross-encoder reranking via Voyage rerank-2.5 (docs/adr/0004)."""
+
+    def __init__(self, api_key: str, model: str = "rerank-2.5") -> None:
+        self._client = AsyncClient(api_key=api_key)
+        self._model = model
+
+    @retry(
+        retry=retry_if_exception_type(
+            (
+                voyage_error.RateLimitError,
+                voyage_error.ServerError,
+                voyage_error.ServiceUnavailableError,
+            )
+        ),
+        wait=wait_exponential(multiplier=2, min=4, max=64),
+        stop=stop_after_attempt(7),
+        reraise=True,
+    )
+    async def rerank(self, *, query: str, documents: list[str], top_k: int) -> list[RerankResult]:
+        if not documents:
+            return []
+        try:
+            result = await self._client.rerank(query, documents, model=self._model, top_k=top_k)
+        except voyage_error.VoyageError as exc:
+            raise ProviderError(f"Voyage rerank failed: {exc}") from exc
+        return [RerankResult(index=r.index, score=r.relevance_score) for r in result.results]

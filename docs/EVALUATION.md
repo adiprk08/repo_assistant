@@ -98,6 +98,27 @@ symbol channel with equally-scored matches that RRF lets crowd out the relevant 
 The channel trades precision for recall on large repos — the motivation for cross-encoder
 reranking (task 19), which restores order over the fused candidates.
 
+### Reranking evaluated and rejected (task 19) — retrieval-only ablation
+
+Three-way ablation on the 26-question set, retrieval metrics only (no LLM cost):
+
+| Metric (overall) | dense | dense+symbol | +rerank (rerank-2.5) |
+|---|---|---|---|
+| recall@5 | 0.90 | **1.00** | 0.95 |
+| MRR | 0.65 | **0.82** | 0.67 |
+| nDCG@10 | 0.67 | **0.84** | 0.71 |
+
+**Cross-encoder reranking made ranking worse** and is **disabled by default** (opt-in via
+`ra eval --rerank`). Per-repo MRR: yocto-queue 1.00→0.81, click 0.69→0.56 — the reranker
+*demotes* the exact symbol matches RRF correctly ranks first. A general-purpose cross-encoder
+scores prose relevance, so for an identifier query ("how does `enqueue` work") it can rank a
+chunk that *describes* enqueuing above the actual `enqueue` function. See ADR-0010. Context
+assembly (overlap dedup + per-file cap) is kept — it improves citation quality, independent of
+ranking, so it isn't captured by these retrieval-only numbers.
+
+**Current best config: dense + symbol, RRF-fused, no rerank — MRR 0.82 / nDCG 0.84** (+17 pts
+over the dense baseline; meets the Phase 2 target).
+
 ### Phase 1 starter (superseded) — 16 questions, 2 tiny JS repos
 
 Pass rate 1.00, correctness 4.83. Recall was near-trivially 1.0 (one obvious evidence file

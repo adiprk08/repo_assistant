@@ -92,11 +92,36 @@ async def _run_question(
     )
 
 
+def _retrieval_only_result(spec: QuestionSpec, ranking: dict[str, float]) -> QuestionResult:
+    """A result carrying only retrieval metrics (no generation/judge — no LLM cost)."""
+    passed = spec.is_negative or ranking.get("recall@10", 0.0) > 0.0
+    return QuestionResult(
+        id=spec.id,
+        category=spec.category,
+        is_negative=spec.is_negative,
+        retrieval_hit=ranking.get("recall@25", 0.0) > 0.0,
+        refused=False,
+        n_citations=0,
+        cited_expected_file=False,
+        correctness=0,
+        groundedness=0,
+        passed=passed,
+        rationale="retrieval-only",
+        ranking=ranking,
+    )
+
+
 async def run_dataset(
-    dataset: DatasetSpec, runtime: Runtime, *, use_symbols: bool = True
+    dataset: DatasetSpec,
+    runtime: Runtime,
+    *,
+    use_symbols: bool = True,
+    use_rerank: bool = True,
+    retrieval_only: bool = False,
 ) -> EvalReport:
     resolved = await resolve_indexed_repo(runtime, dataset.repo_url)
     embedder, llm = runtime.embedder(), runtime.llm()
+    reranker = runtime.reranker()
     report = EvalReport(dataset=resolved.url, repo_url=dataset.repo_url)
 
     for spec in dataset.questions:
@@ -109,16 +134,22 @@ async def run_dataset(
             embedder=embedder,
             vector_index=runtime.vector_index,
             session_factory=runtime.session_factory,
+            reranker=reranker,
             commit=resolved.commit_sha,
             limit=_RETRIEVE_K,
             dense_k=_RETRIEVE_K,
+            rerank_k=_RETRIEVE_K,
             use_symbols=use_symbols,
+            use_rerank=use_rerank,
         )
         ranked = [RankedChunk(c.path, c.start_line, c.end_line) for c in retrieved]
         ranking = _ranking_metrics(spec, ranked)
 
-        answer = await generate_answer(spec.question, retrieved[:_GENERATE_K], llm=llm)
-        result = await _run_question(spec, answer, ranking, llm, set(spec.expected_files))
+        if retrieval_only:
+            result = _retrieval_only_result(spec, ranking)
+        else:
+            answer = await generate_answer(spec.question, retrieved[:_GENERATE_K], llm=llm)
+            result = await _run_question(spec, answer, ranking, llm, set(spec.expected_files))
         report.results.append(result)
         logger.info("eval question", id=spec.id, passed=result.passed, **ranking)
 
