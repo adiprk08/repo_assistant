@@ -98,6 +98,24 @@ symbol channel with equally-scored matches that RRF lets crowd out the relevant 
 The channel trades precision for recall on large repos — the motivation for cross-encoder
 reranking (task 19), which restores order over the fused candidates.
 
+### Sparse BM25 channel added (task 18) — retrieval-only ablation
+
+Adding a BM25 sparse channel (Qdrant IDF-modifier sparse vectors, dependency-free
+code-aware tokenizer) as a third RRF channel:
+
+| Metric (overall) | dense | dense+symbol | dense+sparse+symbol |
+|---|---|---|---|
+| recall@5 | 0.90 | 1.00 | 1.00 |
+| MRR | 0.65 | 0.79 | **0.86** |
+| nDCG@10 | 0.67 | 0.82 | **0.87** |
+
+Sparse lifts MRR +0.07 / nDCG +0.05 over dense+symbol and **recovers `click`** (MRR
+0.62→0.78): the lexical signal complements the noisy symbol channel on the large,
+homonym-heavy repo. **Current best config: dense + sparse + symbol, RRF-fused, no
+rerank — MRR 0.86 / nDCG 0.87 (+21 / +20 over the dense baseline).** (`click`'s own
+dense-only MRR 0.94 still edges the hybrid, so a repo where dense already nails it
+gains slightly from extra channels — a candidate for adaptive channel weighting later.)
+
 ### Reranking evaluated and rejected (task 19) — retrieval-only ablation
 
 Three-way ablation on the 26-question set, retrieval metrics only (no LLM cost):

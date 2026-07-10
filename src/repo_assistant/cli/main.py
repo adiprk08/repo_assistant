@@ -44,7 +44,10 @@ def chat(
 def eval(
     datasets_dir: str = typer.Option("evals/datasets", "--datasets", help="Golden dataset dir."),
     dense_only: bool = typer.Option(
-        False, "--dense-only", help="Ablation: dense channel only (disable the symbol channel)."
+        False, "--dense-only", help="Ablation: dense channel only (no sparse, no symbol)."
+    ),
+    no_sparse: bool = typer.Option(
+        False, "--no-sparse", help="Ablation: disable the BM25 sparse channel."
     ),
     rerank: bool = typer.Option(
         False,
@@ -67,6 +70,7 @@ def eval(
         _eval(
             dataset_paths,
             use_symbols=not dense_only,
+            use_sparse=not dense_only and not no_sparse,
             use_rerank=rerank,
             retrieval_only=retrieval_only,
         )
@@ -148,7 +152,12 @@ async def _chat(identifier: str) -> None:
 
 
 async def _eval(
-    dataset_paths: list, *, use_symbols: bool, use_rerank: bool, retrieval_only: bool
+    dataset_paths: list,
+    *,
+    use_symbols: bool,
+    use_sparse: bool,
+    use_rerank: bool,
+    retrieval_only: bool,
 ) -> None:
     from pathlib import Path
 
@@ -168,6 +177,7 @@ async def _eval(
                         dataset,
                         runtime,
                         use_symbols=use_symbols,
+                        use_sparse=use_sparse,
                         use_rerank=use_rerank,
                         retrieval_only=retrieval_only,
                     )
@@ -175,7 +185,7 @@ async def _eval(
             except (NotFoundError, ProviderError) as exc:
                 raise typer.Exit(code=_fail(str(exc))) from exc
 
-        channels = "dense" + ("+symbol" if use_symbols else "")
+        channels = "dense" + ("+sparse" if use_sparse else "") + ("+symbol" if use_symbols else "")
         config = {
             "generation_model": None if retrieval_only else runtime.settings.generation_model,
             "embedding_model": runtime.settings.embedding_model,

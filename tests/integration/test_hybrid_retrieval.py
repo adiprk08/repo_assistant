@@ -87,6 +87,23 @@ async def test_hybrid_dense_only_still_works(local_repo, qdrant_index, session_f
     assert chunks
 
 
+async def test_sparse_channel_retrieves_by_lexical_match(
+    local_repo, qdrant_index, session_factory
+) -> None:
+    embedder = FakeEmbedder(dimensions=32)
+    result = await index_working_tree(
+        local_repo, embedder=embedder, vector_index=qdrant_index, session_factory=session_factory
+    )
+    # Query the sparse (BM25) vector directly for an identifier in the source.
+    from repo_assistant.core.sparse import text_to_sparse
+
+    hits = await qdrant_index.query_sparse(
+        repo_id=str(result.repo_id), sparse_vector=text_to_sparse("slugify text"), limit=5
+    )
+    assert hits
+    assert any("slugify" in h.payload["text"] for h in hits)
+
+
 async def test_hybrid_retrieve_with_reranker(local_repo, qdrant_index, session_factory) -> None:
     embedder = FakeEmbedder(dimensions=32)
     result = await index_working_tree(

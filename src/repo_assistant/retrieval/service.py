@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from repo_assistant.core.interfaces import Embedder, Reranker, SearchResult, VectorIndex
 from repo_assistant.core.logging import get_logger
+from repo_assistant.core.sparse import text_to_sparse
 from repo_assistant.retrieval.fusion import reciprocal_rank_fusion
 from repo_assistant.retrieval.symbols import symbol_search
 
@@ -107,13 +108,14 @@ async def hybrid_retrieve(
     dense_k: int = 25,
     rerank_k: int = 50,
     use_symbols: bool = True,
+    use_sparse: bool = True,
     use_rerank: bool = True,
 ) -> list[RetrievedChunk]:
-    """Retrieve by fusing the dense and symbol channels, then optionally reranking.
+    """Retrieve by fusing the dense, sparse (BM25), and symbol channels via RRF.
 
     Channels each produce a ranked list of chunk ids; RRF fuses them, the fused
-    top candidates are materialized (dense payloads reused, symbol-only chunks
-    fetched by id), and a cross-encoder reranks them to the final top-``limit``.
+    top candidates are materialized (dense payloads reused, channel-only chunks
+    fetched by id), and an optional cross-encoder reranks the final top-``limit``.
     """
     if not query.strip():
         return []
@@ -125,6 +127,14 @@ async def hybrid_retrieve(
     )
     payloads: dict[str, SearchResult] = {r.id: r for r in dense_results}
     rankings: list[list[str]] = [[r.id for r in dense_results]]
+
+    if use_sparse:
+        sparse_results = await vector_index.query_sparse(
+            repo_id=repo_id, sparse_vector=text_to_sparse(query), filters=filters, limit=dense_k
+        )
+        if sparse_results:
+            payloads.update({r.id: r for r in sparse_results})
+            rankings.append([r.id for r in sparse_results])
 
     if use_symbols:
         symbol_ids = await symbol_search(session_factory, str(snapshot_id), query)

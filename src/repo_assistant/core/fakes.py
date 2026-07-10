@@ -99,6 +99,27 @@ class FakeVectorIndex(VectorIndex):
         scored.sort(key=lambda r: r.score, reverse=True)
         return scored[:limit]
 
+    async def query_sparse(
+        self,
+        *,
+        repo_id: str,
+        sparse_vector: dict[int, float],
+        filters: dict[str, Any] | None = None,
+        limit: int = 10,
+    ) -> list[SearchResult]:
+        query_terms = set(sparse_vector)
+        scored: list[SearchResult] = []
+        for point in self._points.get(repo_id, {}).values():
+            if filters and not all(point.payload.get(k) == v for k, v in filters.items()):
+                continue
+            overlap = query_terms & set(point.sparse_vector or {})
+            if overlap:
+                scored.append(
+                    SearchResult(id=point.id, score=float(len(overlap)), payload=point.payload)
+                )
+        scored.sort(key=lambda r: r.score, reverse=True)
+        return scored[:limit]
+
     async def fetch(self, *, repo_id: str, ids: list[str]) -> list[SearchResult]:
         points = self._points.get(repo_id, {})
         return [

@@ -19,6 +19,7 @@ from repo_assistant.chunking.models import Chunk
 from repo_assistant.chunking.text import chunk_fallback, chunk_markdown
 from repo_assistant.core.interfaces import Embedder, VectorIndex, VectorPoint
 from repo_assistant.core.logging import get_logger
+from repo_assistant.core.sparse import text_to_sparse
 from repo_assistant.ingestion import clone, scan
 from repo_assistant.ingestion.models import Acquisition, FileCategory, ScannedFile
 from repo_assistant.parsing import parse_file
@@ -113,7 +114,14 @@ def _vector_points(
             "text": chunk.text,
         }
         points.append(
-            VectorPoint(id=point_id, dense_vector=vector, sparse_vector=None, payload=payload)
+            VectorPoint(
+                id=point_id,
+                dense_vector=vector,
+                # BM25 sparse over the embed text (breadcrumb + code) for lexical
+                # matching on identifiers (docs/adr/0004).
+                sparse_vector=text_to_sparse(chunk.embed_text),
+                payload=payload,
+            )
         )
         chunk_rows.append(
             {

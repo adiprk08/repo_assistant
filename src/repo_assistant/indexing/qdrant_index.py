@@ -16,7 +16,12 @@ from repo_assistant.core.logging import get_logger
 logger = get_logger(__name__)
 
 DENSE_VECTOR = "dense"
+SPARSE_VECTOR = "sparse"
 _TENANT_KEY = "repo_id"
+
+
+def _sparse(vector: dict[int, float]) -> models.SparseVector:
+    return models.SparseVector(indices=list(vector.keys()), values=list(vector.values()))
 
 
 class QdrantVectorIndex(VectorIndex):
@@ -31,13 +36,20 @@ class QdrantVectorIndex(VectorIndex):
         return cls(AsyncQdrantClient(url=url, check_compatibility=False), collection=collection)
 
     async def prepare(self, dimensions: int) -> None:
-        """Create the collection and the tenant payload index if absent (idempotent)."""
+        """Create the collection and the tenant payload index if absent (idempotent).
+
+        The collection carries a dense named vector and a sparse (BM25) named vector
+        with an IDF modifier so Qdrant computes term IDF across the collection.
+        """
         if await self._client.collection_exists(self._collection):
             return
         await self._client.create_collection(
             collection_name=self._collection,
             vectors_config={
                 DENSE_VECTOR: models.VectorParams(size=dimensions, distance=models.Distance.COSINE)
+            },
+            sparse_vectors_config={
+                SPARSE_VECTOR: models.SparseVectorParams(modifier=models.Modifier.IDF)
             },
         )
         # Indexing the tenant key keeps per-repo filtering fast as repos accumulate.
@@ -51,15 +63,29 @@ class QdrantVectorIndex(VectorIndex):
     async def upsert(self, points: list[VectorPoint]) -> None:
         if not points:
             return
+
+        def _vector(p: VectorPoint) -> Any:
+            # Qdrant accepts a mixed dense+sparse named-vector dict at runtime, but
+            # its VectorStruct type doesn't model the mixed dict — hence Any.
+            vec: dict[str, list[float] | models.SparseVector] = {DENSE_VECTOR: p.dense_vector}
+            if p.sparse_vector:
+                vec[SPARSE_VECTOR] = _sparse(p.sparse_vector)
+            return vec
+
         await self._client.upsert(
             collection_name=self._collection,
             points=[
-                models.PointStruct(
-                    id=p.id, vector={DENSE_VECTOR: p.dense_vector}, payload=p.payload
-                )
-                for p in points
+                models.PointStruct(id=p.id, vector=_vector(p), payload=p.payload) for p in points
             ],
         )
+
+    def _filter(self, repo_id: str, filters: dict[str, Any] | None) -> models.Filter:
+        conditions: list[models.Condition] = [
+            models.FieldCondition(key=_TENANT_KEY, match=models.MatchValue(value=repo_id))
+        ]
+        for key, value in (filters or {}).items():
+            conditions.append(models.FieldCondition(key=key, match=models.MatchValue(value=value)))
+        return models.Filter(must=conditions)
 
     async def query(
         self,
@@ -70,17 +96,34 @@ class QdrantVectorIndex(VectorIndex):
         filters: dict[str, Any] | None = None,
         limit: int = 10,
     ) -> list[SearchResult]:
-        conditions: list[models.Condition] = [
-            models.FieldCondition(key=_TENANT_KEY, match=models.MatchValue(value=repo_id))
-        ]
-        for key, value in (filters or {}).items():
-            conditions.append(models.FieldCondition(key=key, match=models.MatchValue(value=value)))
-
         response = await self._client.query_points(
             collection_name=self._collection,
             query=dense_vector,
             using=DENSE_VECTOR,
-            query_filter=models.Filter(must=conditions),
+            query_filter=self._filter(repo_id, filters),
+            limit=limit,
+            with_payload=True,
+        )
+        return [
+            SearchResult(id=str(point.id), score=point.score, payload=point.payload or {})
+            for point in response.points
+        ]
+
+    async def query_sparse(
+        self,
+        *,
+        repo_id: str,
+        sparse_vector: dict[int, float],
+        filters: dict[str, Any] | None = None,
+        limit: int = 10,
+    ) -> list[SearchResult]:
+        if not sparse_vector:
+            return []
+        response = await self._client.query_points(
+            collection_name=self._collection,
+            query=_sparse(sparse_vector),
+            using=SPARSE_VECTOR,
+            query_filter=self._filter(repo_id, filters),
             limit=limit,
             with_payload=True,
         )

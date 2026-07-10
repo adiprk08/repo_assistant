@@ -149,6 +149,17 @@ class VectorIndex(ABC):
         limit: int = 10,
     ) -> list[SearchResult]: ...
 
+    async def query_sparse(
+        self,
+        *,
+        repo_id: str,
+        sparse_vector: dict[int, float],
+        filters: dict[str, Any] | None = None,
+        limit: int = 10,
+    ) -> list[SearchResult]:
+        """Query the sparse (BM25) vector. Default: no-op for indexes without sparse."""
+        return []
+
     @abstractmethod
     async def fetch(self, *, repo_id: str, ids: list[str]) -> list[SearchResult]: ...
 
