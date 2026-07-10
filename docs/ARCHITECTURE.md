@@ -72,7 +72,9 @@ Everything of substance lives in the `repo_assistant` Python package; API, worke
 repo_assistant/
 ├── src/repo_assistant/
 │   ├── core/          # config (pydantic-settings), logging, errors, token counting,
-│   │                  # provider interfaces: LLMClient, Embedder, Reranker, VectorIndex
+│   │                  # provider interfaces: LLMClient, Embedder, Reranker, VectorIndex; test fakes
+│   ├── providers/     # vendor adapters implementing core interfaces (voyage-code-3,
+│   │                  # Anthropic) + a settings-driven factory — the only place SDKs are imported
 │   ├── ingestion/     # git acquisition (clone/fetch/diff), file scanning + filtering,
 │   │                  # language detection, secret redaction
 │   ├── parsing/       # tree-sitter parsing, symbol + import extraction, docstrings
@@ -168,7 +170,7 @@ Two tiers behind an intent router ([ADR-0006](adr/0006-reasoning-pipeline.md)):
 | `jobs` | type, stage, state, progress, error, checkpoints |
 | `eval_runs` / `eval_results` | see [EVALUATION.md](EVALUATION.md) |
 
-**Qdrant** — single collection, named vectors `dense` (voyage-code-3) + `sparse` (BM25); payload: `repo_id` (tenant key, indexed), `path`, `language`, `kind`, `symbol`, `start_line`, `end_line`, `commit`. Payload-partitioned multitenancy ([ADR-0009](adr/0009-multitenancy-and-versioning.md)); scalar int8 quantization enabled once collections grow.
+**Qdrant** — single collection, named vectors `dense` (voyage-code-3) + `sparse` (BM25, Phase 2); payload: `repo_id` (tenant key, indexed), `path`, `language`, `category`, `symbol`, `start_line`, `end_line`, `commit`, and the chunk `text` itself (so retrieval returns citable content without a second round-trip). Payload-partitioned multitenancy ([ADR-0009](adr/0009-multitenancy-and-versioning.md)); scalar int8 quantization enabled once collections grow. Point IDs are `uuid5(snapshot, path, index)` so re-indexing upserts are idempotent, and equal the `chunks.id` bookkeeping row.
 
 ## 8. Incremental indexing and version awareness
 
