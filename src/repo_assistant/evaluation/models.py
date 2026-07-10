@@ -12,15 +12,23 @@ import yaml
 
 
 @dataclass(frozen=True, slots=True)
+class SpanLabel:
+    file: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True, slots=True)
 class QuestionSpec:
     id: str
     question: str
     category: str
     expected_files: list[str]
+    expected_spans: list[SpanLabel] = field(default_factory=list)
 
     @property
     def is_negative(self) -> bool:
-        return not self.expected_files
+        return not self.expected_files and not self.expected_spans
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +47,10 @@ class DatasetSpec:
                     question=q["question"],
                     category=q["category"],
                     expected_files=list(q.get("expected_files") or []),
+                    expected_spans=[
+                        SpanLabel(file=s["file"], start=s["start"], end=s["end"])
+                        for s in (q.get("expected_spans") or [])
+                    ],
                 )
                 for q in data["questions"]
             ],
@@ -58,6 +70,7 @@ class QuestionResult:
     groundedness: int  # judge score 1-5
     passed: bool  # overall per-question verdict
     rationale: str
+    ranking: dict[str, float] = field(default_factory=dict)  # recall@k, mrr, ndcg
 
 
 @dataclass(slots=True)
@@ -72,7 +85,7 @@ class EvalReport:
     def summary(self) -> dict[str, float | int]:
         positives = [r for r in self.results if not r.is_negative]
         negatives = [r for r in self.results if r.is_negative]
-        return {
+        summary: dict[str, float | int] = {
             "questions": len(self.results),
             "retrieval_recall": self._mean([float(r.retrieval_hit) for r in positives]),
             "answer_correctness": self._mean([r.correctness for r in positives]),
@@ -86,3 +99,8 @@ class EvalReport:
             "negative_handled_rate": self._mean([float(r.passed) for r in negatives]),
             "pass_rate": self._mean([float(r.passed) for r in self.results]),
         }
+        # Span/file-level ranking metrics, averaged over positives that carry them.
+        ranking_keys = {key for r in positives for key in r.ranking}
+        for key in sorted(ranking_keys):
+            summary[key] = self._mean([r.ranking[key] for r in positives if key in r.ranking])
+        return summary

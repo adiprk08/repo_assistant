@@ -52,21 +52,37 @@ RAG failures compound; measuring only end-to-end answers hides whether retrieval
 - **Nightly:** full suite including judge grading; trend dashboard; regressions open issues automatically.
 - **Ablations on demand:** the harness accepts config overrides (e.g. `--no-rerank`, `--dense-only`, `--no-context-headers`) so every architecture claim in the ADRs stays empirically backed.
 
-## 5. Phase 1 baseline (recorded)
+## 5. Recorded baselines
 
-First recorded baseline — **2026-07-10**, `claude-opus-4-8` + `voyage-code-3` (1024-d), **dense-only** retrieval, 16 questions over two small JS repos (`is-plain-obj`, `yocto-queue`). This is the reference every Phase 2 retrieval change is measured against.
+### Dense-only reference (Phase 2 start) — **2026-07-10**
+
+`claude-opus-4-8` + `voyage-code-3` (1024-d), **dense-only** retrieval, span-level
+metrics, **26 questions** over three repos (`click` medium Python, `is-plain-obj`,
+`yocto-queue`). **This is the reference every Phase 2 retrieval change is measured against.**
 
 | Metric | Overall |
 |---|---|
-| Retrieval recall@12 | 1.00 |
-| Answer correctness (judge, 1–5) | 4.83 |
-| Groundedness (judge, 1–5) | 4.42 |
-| Citation presence | 1.00 |
-| Citation file precision | 0.92 |
+| recall@5 / @10 / @25 | 0.90 / 1.00 / 1.00 |
+| **MRR** | **0.65** |
+| **nDCG@10** | **0.67** |
+| Answer correctness (judge, 1–5) | 4.70 |
+| Groundedness (judge, 1–5) | 4.50 |
+| Citation file precision | 0.95 |
 | Negative handled rate | 1.00 |
-| **Pass rate** | **1.00** (16/16) |
+| Pass rate | 0.96 (25/26) |
 
-Caveats: small starter set on tiny single-file repos — retrieval recall is near-trivially high here because each repo has one obvious evidence file; the number will become discriminating once the benchmark set includes medium/large multi-file repos (gated on a Voyage payment method lifting the free-tier rate limit). The value of this run was less the scores than catching the negative-handling metric flaw above.
+**Reading:** recall is near-saturated — the right evidence almost always lands *somewhere*
+in the candidate set — so **MRR/nDCG (ranking quality) are the discriminating metrics**, and
+they have clear headroom. `yocto-queue` (MRR 0.27) is the sharpest example: a single file of
+small methods where dense embeddings can't distinguish which method chunk is most relevant.
+Phase 2's symbol channel, hybrid BM25, and reranking all target getting the right span to
+rank 1 — so the target is **MRR/nDCG up**, not recall (already ~1.0).
+
+### Phase 1 starter (superseded) — 16 questions, 2 tiny JS repos
+
+Pass rate 1.00, correctness 4.83. Recall was near-trivially 1.0 (one obvious evidence file
+per repo); its real value was catching the negative-handling metric flaw (§2). Superseded by
+the expanded span-level baseline above.
 
 ## 6. Cost discipline
 

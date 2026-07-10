@@ -14,22 +14,33 @@ from pathlib import Path
 from repo_assistant.cli.runtime import Runtime, resolve_indexed_repo
 from repo_assistant.core.logging import get_logger
 from repo_assistant.evaluation.judge import judge_answer, judge_negative
+from repo_assistant.evaluation.metrics import RankedChunk, Span, retrieval_metrics
 from repo_assistant.evaluation.models import (
     DatasetSpec,
     EvalReport,
     QuestionResult,
     QuestionSpec,
 )
-from repo_assistant.reasoning import answer_question
+from repo_assistant.reasoning import generate_answer
 from repo_assistant.reasoning.service import Answer
+from repo_assistant.retrieval import retrieve
 
 logger = get_logger(__name__)
 
 _CORRECTNESS_PASS = 4
+_RETRIEVE_K = 25  # rank depth for retrieval metrics; generation uses the top slice
+_GENERATE_K = 12
+
+
+def _ranking_metrics(spec: QuestionSpec, ranked: list[RankedChunk]) -> dict[str, float]:
+    if spec.is_negative:
+        return {}
+    spans = [Span(file=s.file, start=s.start, end=s.end) for s in spec.expected_spans]
+    return retrieval_metrics(ranked, expected_files=set(spec.expected_files), expected_spans=spans)
 
 
 async def _run_question(
-    spec: QuestionSpec, answer: Answer, llm, expected: set[str]
+    spec: QuestionSpec, answer: Answer, ranking: dict[str, float], llm, expected: set[str]
 ) -> QuestionResult:
     retrieved_paths = {c.path for c in answer.retrieved}
     retrieval_hit = bool(expected & retrieved_paths)
@@ -56,6 +67,7 @@ async def _run_question(
             groundedness=0,
             passed=handled,
             rationale=rationale,
+            ranking=ranking,
         )
 
     judgement = await judge_answer(
@@ -76,27 +88,33 @@ async def _run_question(
         groundedness=judgement.groundedness,
         passed=passed,
         rationale=judgement.rationale,
+        ranking=ranking,
     )
 
 
-async def run_dataset(dataset: DatasetSpec, runtime: Runtime, *, limit: int = 12) -> EvalReport:
+async def run_dataset(dataset: DatasetSpec, runtime: Runtime) -> EvalReport:
     resolved = await resolve_indexed_repo(runtime, dataset.repo_url)
     embedder, llm = runtime.embedder(), runtime.llm()
     report = EvalReport(dataset=resolved.url, repo_url=dataset.repo_url)
 
     for spec in dataset.questions:
-        answer = await answer_question(
+        # One retrieval at full depth: metrics score the ranked list, generation
+        # uses the top slice (no double embedding of the query).
+        retrieved = await retrieve(
             str(resolved.repo_id),
             spec.question,
             embedder=embedder,
             vector_index=runtime.vector_index,
-            llm=llm,
-            limit=limit,
+            limit=_RETRIEVE_K,
             filters={"commit": resolved.commit_sha},
         )
-        result = await _run_question(spec, answer, llm, set(spec.expected_files))
+        ranked = [RankedChunk(c.path, c.start_line, c.end_line) for c in retrieved]
+        ranking = _ranking_metrics(spec, ranked)
+
+        answer = await generate_answer(spec.question, retrieved[:_GENERATE_K], llm=llm)
+        result = await _run_question(spec, answer, ranking, llm, set(spec.expected_files))
         report.results.append(result)
-        logger.info("eval question", id=spec.id, passed=result.passed)
+        logger.info("eval question", id=spec.id, passed=result.passed, **ranking)
 
     return report
 

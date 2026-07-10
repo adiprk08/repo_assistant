@@ -1,0 +1,71 @@
+# Golden Q&A for pallets/click (medium Python repo), pinned at the commit in
+# evals/repos.yaml. `expected_spans` give file + line ranges for span-level
+# retrieval metrics; `expected_files` is the file-level fallback. Empty of both
+# marks a negative (not-present) question.
+repo_url: https://github.com/pallets/click
+questions:
+  - id: clk-cmd-1
+    question: How does the click.command decorator turn a function into a Command object?
+    category: explain
+    expected_files: [src/click/decorators.py]
+    expected_spans:
+      - {file: src/click/decorators.py, start: 168, end: 262}
+
+  - id: clk-opt-1
+    question: How does the click.option decorator attach an option to a command?
+    category: explain
+    expected_files: [src/click/decorators.py]
+    expected_spans:
+      - {file: src/click/decorators.py, start: 352, end: 430}
+
+  - id: clk-prompt-1
+    question: How does Click prompt the user for input on the terminal?
+    category: lookup
+    expected_files: [src/click/termui.py]
+    expected_spans:
+      - {file: src/click/termui.py, start: 132, end: 244}
+
+  - id: clk-envvar-1
+    question: How does Click read a parameter's value from an environment variable?
+    category: trace
+    expected_files: [src/click/core.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 2658, end: 2740}
+
+  - id: clk-parser-1
+    question: How does the option parser process command-line tokens into options and arguments?
+    category: architecture
+    expected_files: [src/click/parser.py]
+    expected_spans:
+      - {file: src/click/parser.py, start: 298, end: 420}
+
+  - id: clk-group-1
+    question: How does a Group resolve which subcommand to run from the command line?
+    category: trace
+    expected_files: [src/click/core.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 2060, end: 2110}
+
+  - id: clk-test-1
+    question: How does CliRunner invoke a command in isolation for testing?
+    category: explain
+    expected_files: [src/click/testing.py]
+    expected_spans:
+      - {file: src/click/testing.py, start: 596, end: 700}
+
+  - id: clk-types-1
+    question: How does a ParamType convert and validate a raw string value?
+    category: explain
+    expected_files: [src/click/types.py]
+    expected_spans:
+      - {file: src/click/types.py, start: 42, end: 130}
+
+  - id: clk-neg-1
+    question: Does Click include a built-in HTTP client for making web requests?
+    category: negative
+    expected_files: []
+
+  - id: clk-neg-2
+    question: Is there a database ORM or SQL query builder in this library?
+    category: negative
+    expected_files: []

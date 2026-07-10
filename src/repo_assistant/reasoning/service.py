@@ -44,26 +44,14 @@ def _documents(retrieved: list[RetrievedChunk]) -> list[Document]:
     ]
 
 
-async def answer_question(
-    repo_id: str,
+async def generate_answer(
     question: str,
+    retrieved: list[RetrievedChunk],
     *,
-    embedder: Embedder,
-    vector_index: VectorIndex,
     llm: LLMClient,
     history: list[Message] | None = None,
-    limit: int = 12,
-    filters: dict[str, object] | None = None,
 ) -> Answer:
-    """Answer ``question`` about a repo, grounded in retrieved chunks with verified citations."""
-    retrieved = await retrieve(
-        repo_id,
-        question,
-        embedder=embedder,
-        vector_index=vector_index,
-        limit=limit,
-        filters=filters,
-    )
+    """Generate a grounded, citation-verified answer from already-retrieved chunks."""
     if not retrieved:
         return Answer(text=_REFUSAL, citations=[], retrieved=[], refused=True)
 
@@ -86,3 +74,26 @@ async def answer_question(
         usage=response.usage,
         refused=False,
     )
+
+
+async def answer_question(
+    repo_id: str,
+    question: str,
+    *,
+    embedder: Embedder,
+    vector_index: VectorIndex,
+    llm: LLMClient,
+    history: list[Message] | None = None,
+    limit: int = 12,
+    filters: dict[str, object] | None = None,
+) -> Answer:
+    """Answer ``question`` about a repo, grounded in retrieved chunks with verified citations."""
+    retrieved = await retrieve(
+        repo_id,
+        question,
+        embedder=embedder,
+        vector_index=vector_index,
+        limit=limit,
+        filters=filters,
+    )
+    return await generate_answer(question, retrieved, llm=llm, history=history)

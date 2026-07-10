@@ -6,31 +6,43 @@ questions:
     question: How is the queue implemented internally?
     category: architecture
     expected_files: [index.js]
+    expected_spans:
+      - {file: index.js, start: 6, end: 22}
 
   - id: yq-explain-1
     question: How does enqueue add a new value, and why is it O(1)?
     category: explain
     expected_files: [index.js]
+    expected_spans:
+      - {file: index.js, start: 24, end: 37}
 
   - id: yq-explain-2
     question: What happens to the tail reference when the queue becomes empty after a dequeue?
     category: explain
     expected_files: [index.js]
+    expected_spans:
+      - {file: index.js, start: 38, end: 54}
 
   - id: yq-lookup-1
     question: How can you iterate over all values in the queue?
     category: lookup
     expected_files: [index.js]
+    expected_spans:
+      - {file: index.js, start: 76, end: 84}
 
   - id: yq-lookup-2
     question: What does the drain method do?
     category: lookup
     expected_files: [index.js]
+    expected_spans:
+      - {file: index.js, start: 85, end: 90}
 
   - id: yq-lookup-3
     question: How is the size of the queue tracked and exposed?
     category: lookup
     expected_files: [index.js]
+    expected_spans:
+      - {file: index.js, start: 72, end: 74}
 
   - id: yq-neg-1
     question: Does this queue support priority ordering or a max-heap?

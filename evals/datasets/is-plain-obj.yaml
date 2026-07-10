@@ -7,31 +7,43 @@ questions:
     question: How does the library determine whether a value is a plain object?
     category: explain
     expected_files: [index.js]
+    expected_spans:
+      - {file: index.js, start: 1, end: 8}
 
   - id: ipo-lookup-1
     question: What does isPlainObject return when given null?
     category: lookup
     expected_files: [index.js]
+    expected_spans:
+      - {file: index.js, start: 1, end: 4}
 
   - id: ipo-explain-2
     question: How does it recognize objects created with Object.create(null)?
     category: explain
     expected_files: [index.js]
+    expected_spans:
+      - {file: index.js, start: 6, end: 8}
 
   - id: ipo-explain-3
     question: Why does the check exclude values that have Symbol.toStringTag or Symbol.iterator?
     category: explain
     expected_files: [index.js, readme.md]
+    expected_spans:
+      - {file: index.js, start: 6, end: 8}
 
   - id: ipo-lookup-2
     question: How is the isPlainObject function exported from the module?
     category: lookup
     expected_files: [index.js]
+    expected_spans:
+      - {file: index.js, start: 1, end: 1}
 
   - id: ipo-arch-1
     question: Does the implementation rely on the prototype chain, and how?
     category: architecture
     expected_files: [index.js]
+    expected_spans:
+      - {file: index.js, start: 6, end: 8}
 
   - id: ipo-neg-1
     question: Does this library provide a deep clone or merge utility for objects?
