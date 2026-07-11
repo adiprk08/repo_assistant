@@ -1,0 +1,43 @@
+# Golden Q&A for rust-lang/log (small Rust logging facade), pinned at the commit
+# in evals/repos.yaml. Tier 2 language coverage: exercises Rust symbol retrieval.
+repo_url: https://github.com/rust-lang/log
+questions:
+  - id: rslog-level-1
+    question: What log levels does the crate define and how are they ordered?
+    category: explain
+    expected_files: [src/lib.rs]
+    expected_spans:
+      - {file: src/lib.rs, start: 475, end: 499}
+
+  - id: rslog-trait-1
+    question: What methods must a type implement to act as a logger?
+    category: explain
+    expected_files: [src/lib.rs]
+    expected_spans:
+      - {file: src/lib.rs, start: 1275, end: 1306}
+
+  - id: rslog-setlogger-1
+    question: How do you install a global logger for the whole program?
+    category: lookup
+    expected_files: [src/lib.rs]
+    expected_spans:
+      - {file: src/lib.rs, start: 1504, end: 1506}
+
+  - id: rslog-maxlevel-1
+    question: How is the maximum enabled log level queried?
+    category: lookup
+    expected_files: [src/lib.rs]
+    expected_spans:
+      - {file: src/lib.rs, start: 1422, end: 1430}
+
+  - id: rslog-filter-1
+    question: What is LevelFilter and how does it differ from Level?
+    category: explain
+    expected_files: [src/lib.rs]
+    expected_spans:
+      - {file: src/lib.rs, start: 636, end: 649}
+
+  - id: rslog-neg-1
+    question: Does this crate write logs to files or rotate log files on disk?
+    category: negative
+    expected_files: []

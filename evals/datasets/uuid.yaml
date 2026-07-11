@@ -1,0 +1,43 @@
+# Golden Q&A for google/uuid (small Go library), pinned at the commit in
+# evals/repos.yaml. Tier 2 language coverage: exercises Go symbol retrieval.
+repo_url: https://github.com/google/uuid
+questions:
+  - id: gouuid-parse-1
+    question: How does the Parse function turn a string into a UUID?
+    category: explain
+    expected_files: [uuid.go]
+    expected_spans:
+      - {file: uuid.go, start: 95, end: 145}
+
+  - id: gouuid-v4-1
+    question: How is a random version 4 UUID generated?
+    category: lookup
+    expected_files: [version4.go]
+    expected_spans:
+      - {file: version4.go, start: 39, end: 44}
+
+  - id: gouuid-v1-1
+    question: How does the NewUUID function create a version 1 UUID?
+    category: lookup
+    expected_files: [version1.go]
+    expected_spans:
+      - {file: version1.go, start: 19, end: 44}
+
+  - id: gouuid-string-1
+    question: How does a UUID format itself as a string?
+    category: explain
+    expected_files: [uuid.go]
+    expected_spans:
+      - {file: uuid.go, start: 272, end: 276}
+
+  - id: gouuid-version-1
+    question: How do you get the version number of a UUID?
+    category: lookup
+    expected_files: [uuid.go]
+    expected_spans:
+      - {file: uuid.go, start: 314, end: 316}
+
+  - id: gouuid-neg-1
+    question: Does this library generate cryptographic public/private key pairs?
+    category: negative
+    expected_files: []

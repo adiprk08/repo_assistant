@@ -18,3 +18,20 @@ repos:
     commit: b07eac099753833b29d06c614149904445739776
     language: javascript
     size: small
+  # Tier 2 language coverage (Go/Java/Rust) — small canonical libraries pinned
+  # for reproducibility, added when the tree-sitter grammars landed (Phase 3).
+  - name: uuid
+    url: https://github.com/google/uuid
+    commit: 2d3c2a9cc518326daf99a383f07c4d3c44317e4d
+    language: go
+    size: small
+  - name: log
+    url: https://github.com/rust-lang/log
+    commit: 037d7a58f6ad184abb3afc4db81d37c43a5696ec
+    language: rust
+    size: small
+  - name: commons-cli
+    url: https://github.com/apache/commons-cli
+    commit: bbcedf60896d4b4dda6099db44a9a18287bd618b
+    language: java
+    size: small

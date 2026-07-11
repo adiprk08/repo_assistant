@@ -153,6 +153,35 @@ expansion, down-weighted fusion) recorded in **ADR-0011**; the graph's primary
 consumer remains targeted traversal by the Phase 3 agent loop (task 25), not
 blind channel fusion.
 
+### Tier 2 language coverage — Go/Java/Rust benchmark repos (task 23)
+
+Three small canonical repos added to validate the new grammars end to end:
+`google/uuid` (Go), `rust-lang/log` (Rust), `apache/commons-cli` (Java), pinned
+in `evals/repos.yaml`. All index cleanly through the full pipeline —
+parse → symbols → chunks → voyage embeddings → graph edges — with correct
+language-aware symbols (Go receiver methods, Rust `impl`/`trait`/`mod` owners,
+nested Java members like `Option.Builder.valueSeparator`). Index footprints:
+uuid 162 symbols / 551 edges, log 523 / 4,510, commons-cli 1,153 / 12,034.
+
+18 span-labeled golden questions (6 per repo, one negative each) lift the golden
+set to **54 questions across 5 languages**. Retrieval-only, default config:
+
+| Metric (overall, 54 Q) | Value |
+|---|---|
+| recall@5 / @10 / @25 | 0.93 / 0.96 / 0.99 |
+| MRR | 0.87 |
+| nDCG@10 | 0.78 |
+| pass rate | 1.00 (54/54) |
+
+Per-language MRR / recall@10: uuid 0.92 / 1.00, log ~0.9 / 1.00, commons-cli
+0.85 / 1.00 — the symbol channel resolves identifier queries across all three
+grammars. The CI gate (`ra eval --retrieval-only --gate`) still passes on the
+expanded set (recall@10 0.96 ≥ 0.90). Two initial misses were corrected at
+authoring time: a Java `getOptionValue` label widened to its 12-overload cluster
+(a labeling artifact), and a Go question sharpened to name `NewUUID` (the
+original "version 1 time-based" wording legitimately tied with the other
+time-based version files — an honest ambiguity, not a retrieval defect).
+
 ### Phase 3 full judged baseline — 36-question set (task 24)
 
 Full run (generation + judge) on the expanded 36-question set, default config

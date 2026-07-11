@@ -1,0 +1,46 @@
+# Golden Q&A for apache/commons-cli (small Java CLI-parsing library), pinned at
+# the commit in evals/repos.yaml. Tier 2 language coverage: exercises Java symbol
+# retrieval, including nested classes and method overloads.
+repo_url: https://github.com/apache/commons-cli
+questions:
+  - id: cli-parse-1
+    question: How does DefaultParser parse command-line arguments into a CommandLine?
+    category: explain
+    expected_files: [src/main/java/org/apache/commons/cli/DefaultParser.java]
+    expected_spans:
+      - {file: src/main/java/org/apache/commons/cli/DefaultParser.java, start: 754, end: 777}
+
+  - id: cli-help-1
+    question: How does HelpFormatter print the usage and help text for options?
+    category: explain
+    expected_files: [src/main/java/org/apache/commons/cli/HelpFormatter.java]
+    expected_spans:
+      - {file: src/main/java/org/apache/commons/cli/HelpFormatter.java, start: 753, end: 770}
+
+  - id: cli-addopt-1
+    question: How do you add an option to an Options collection?
+    category: lookup
+    expected_files: [src/main/java/org/apache/commons/cli/Options.java]
+    expected_spans:
+      - {file: src/main/java/org/apache/commons/cli/Options.java, start: 73, end: 88}
+
+  - id: cli-getval-1
+    question: How do you read the value of a parsed option from the command line?
+    category: lookup
+    expected_files: [src/main/java/org/apache/commons/cli/CommandLine.java]
+    # getOptionValue is a cluster of ~12 small overloads (352-482); any chunk
+    # covering the cluster is valid evidence.
+    expected_spans:
+      - {file: src/main/java/org/apache/commons/cli/CommandLine.java, start: 352, end: 482}
+
+  - id: cli-builder-1
+    question: How is an Option created using its builder?
+    category: lookup
+    expected_files: [src/main/java/org/apache/commons/cli/Option.java]
+    expected_spans:
+      - {file: src/main/java/org/apache/commons/cli/Option.java, start: 373, end: 375}
+
+  - id: cli-neg-1
+    question: Does commons-cli include a parser for YAML configuration files?
+    category: negative
+    expected_files: []
