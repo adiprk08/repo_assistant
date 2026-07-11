@@ -153,6 +153,34 @@ expansion, down-weighted fusion) recorded in **ADR-0011**; the graph's primary
 consumer remains targeted traversal by the Phase 3 agent loop (task 25), not
 blind channel fusion.
 
+### NL-heavy challenge benchmark — the fair test the main set couldn't give
+
+Every quality lever (reranking, graph, agent, descriptions) measured net-neutral
+because the golden questions *name the symbol they want* — the symbol + BM25
+channels resolve them in one pass, leaving no headroom. The challenge set
+(`evals/challenge/click.yaml`, 11 questions) fixes that: behavioral,
+natural-language questions phrased to **avoid the target symbol's name** ("what
+decides whether they see the help screen instead of the command running?" →
+`Command.parse_args`'s `no_args_is_help` check). Kept out of `evals/datasets/`
+so it does not gate CI (it is legitimately harder than the regression floor).
+
+Single-pass retrieval **collapses** on it — proof the set discriminates:
+
+| Metric | Main click set | Challenge set |
+|---|---|---|
+| MRR | ~1.00 | **0.24** |
+| nDCG@10 | 0.75–0.85 | **0.30** |
+| recall@5 / @10 / @25 | 0.80 / 0.83 / 0.90 | **0.40 / 0.60 / 0.80** |
+
+recall@25 0.80 means the evidence is *reachable* but ranked deep (or missed
+entirely for 20%) — exactly the regime where the levers should help. First fair
+re-test, **contextual descriptions** (cost-free, on the existing enriched
+snapshot): MRR 0.24→0.26, nDCG 0.30→0.32 — a real but tiny lift, recall
+unchanged. So descriptions barely help even here; ADR-0013 stands, strengthened.
+The agent-loop re-test on this set (the lever most likely to help, since it can
+search/read adaptively when the query names nothing) is the outstanding
+measurement.
+
 ### Contextual chunk descriptions (task 26, Stage A) — no lift, kept opt-in
 
 Anthropic-style "contextual retrieval": a Haiku one-liner situating each code

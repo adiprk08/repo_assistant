@@ -179,8 +179,11 @@ def test_gate_passes_above_floors_and_fails_below() -> None:
 
 
 def test_shipped_datasets_are_valid() -> None:
-    # The golden datasets we ship must load and be well-formed.
-    for path in sorted(Path("evals/datasets").glob("*.yaml")):
+    # The golden datasets we ship (regression set + NL-heavy challenge set) must
+    # load and be well-formed.
+    paths = [*Path("evals/datasets").glob("*.yaml"), *Path("evals/challenge").glob("*.yaml")]
+    assert paths
+    for path in sorted(paths):
         dataset = DatasetSpec.from_yaml(path)
         assert dataset.repo_url.startswith("https://github.com/")
         assert dataset.questions

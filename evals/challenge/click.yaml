@@ -1,0 +1,82 @@
+# NL-heavy "challenge" set for pallets/click, pinned at the commit in
+# evals/repos.yaml. Deliberately phrased in behavioral, natural language that does
+# NOT name the target symbol — so the symbol/BM25 channels can't trivially win and
+# semantic (and agentic) retrieval has to earn it. This is the fair test the
+# saturated main set couldn't provide (docs/EVALUATION.md §5, ADR-0012/0013).
+# Kept OUT of evals/datasets/ so it is not part of the CI regression gate.
+repo_url: https://github.com/pallets/click
+questions:
+  - id: clk-ch-noargs-1
+    question: When someone runs a command with no arguments at all, what decides whether they see the help screen instead of the command running?
+    category: trace
+    expected_files: [src/click/core.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 1359, end: 1393}
+
+  - id: clk-ch-subcmd-1
+    question: If a word is typed after the program name, how does the tool tell whether it names a sub-command or is just a value?
+    category: trace
+    expected_files: [src/click/core.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 2060, end: 2084}
+
+  - id: clk-ch-envvar-1
+    question: How can a setting's value come from the shell's environment when the user doesn't type it on the command line?
+    category: explain
+    expected_files: [src/click/core.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 2658, end: 2701}
+
+  - id: clk-ch-source-1
+    question: When the same setting could be supplied several different ways at once, what arbitrates which source's value actually gets used?
+    category: debug
+    expected_files: [src/click/core.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 2719, end: 2805}
+
+  - id: clk-ch-columns-1
+    question: What makes the help output line up names and their descriptions into neat aligned columns?
+    category: explain
+    expected_files: [src/click/formatting.py]
+    expected_spans:
+      - {file: src/click/formatting.py, start: 229, end: 271}
+
+  - id: clk-ch-secret-1
+    question: How does the tool read something sensitive from the user without echoing the typed characters to the screen?
+    category: lookup
+    expected_files: [src/click/termui.py]
+    expected_spans:
+      - {file: src/click/termui.py, start: 78, end: 81}
+
+  - id: clk-ch-progname-1
+    question: How does the program work out what name to print for itself in usage text, no matter how it was launched?
+    category: explain
+    expected_files: [src/click/utils.py]
+    expected_spans:
+      - {file: src/click/utils.py, start: 542, end: 594}
+
+  - id: clk-ch-splitenv-1
+    question: One environment variable holds several values separated by whitespace — how are they broken apart into a list?
+    category: explain
+    expected_files: [src/click/types.py]
+    expected_spans:
+      - {file: src/click/types.py, start: 147, end: 155}
+
+  - id: clk-ch-chain-1
+    question: When several subcommands run in one invocation, what gathers their return values and lets a parent transform the collected result?
+    category: trace
+    expected_files: [src/click/core.py]
+    expected_spans:
+      - {file: src/click/core.py, start: 1992, end: 2058}
+
+  - id: clk-ch-longopt-1
+    question: At the lowest level, how does the parser recognize that a token starting with dashes is a long option and pull off its attached value?
+    category: trace
+    expected_files: [src/click/parser.py]
+    expected_spans:
+      - {file: src/click/parser.py, start: 363, end: 388}
+
+  - id: clk-ch-neg-1
+    question: How does this library stream tokens back from a large language model API?
+    category: negative
+    expected_files: []
