@@ -18,6 +18,9 @@ class SymbolKind(StrEnum):
     INTERFACE = "interface"
     TYPE = "type"
     ENUM = "enum"
+    STRUCT = "struct"  # Go/Rust aggregate types
+    TRAIT = "trait"  # Rust traits (interface-like)
+    MODULE = "module"  # Rust modules
 
 
 @dataclass(frozen=True, slots=True)

@@ -9,7 +9,7 @@ entries here plus a symbol-query file (see docs/adr/0002-parsing-and-chunking.md
 from repo_assistant.ingestion.models import FileCategory
 
 # Extension -> tree-sitter language name (parsed as code). Lowercased, no dot.
-# Phase 1 grammars only; T2/T3 languages are added in later phases.
+# Tier 1: Python, TypeScript/JavaScript. Tier 2: Go, Java, Rust.
 _CODE_EXTENSIONS: dict[str, str] = {
     "py": "python",
     "pyi": "python",
@@ -21,6 +21,9 @@ _CODE_EXTENSIONS: dict[str, str] = {
     "mts": "typescript",
     "cts": "typescript",
     "tsx": "tsx",
+    "go": "go",
+    "java": "java",
+    "rs": "rust",
 }
 
 _DOC_EXTENSIONS: frozenset[str] = frozenset({"md", "markdown", "mdx", "rst", "txt"})

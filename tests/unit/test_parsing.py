@@ -71,6 +71,72 @@ def test_javascript_class_and_function() -> None:
     assert kinds["mount"] is SymbolKind.FUNCTION
 
 
+def test_go_functions_methods_and_types() -> None:
+    src = (
+        b"package main\n"
+        b'import "fmt"\n'
+        b"type Greeter struct { name string }\n"
+        b"type Shape interface { Area() float64 }\n"
+        b"type ID int\n"
+        b"func (g *Greeter) Hello() string { return g.name }\n"
+        b"func Add(a, b int) int { return a + b }\n"
+    )
+    parsed = parse_file("main.go", "go", src)
+    kinds = {s.qualified_name: s.kind for s in parsed.symbols}
+    assert kinds["Greeter"] is SymbolKind.STRUCT
+    assert kinds["Shape"] is SymbolKind.INTERFACE
+    assert kinds["ID"] is SymbolKind.TYPE
+    assert kinds["Add"] is SymbolKind.FUNCTION
+    # A pointer-receiver method is owned by the (unwrapped) receiver type.
+    hello = _by_name(parsed, "Greeter.Hello")
+    assert hello.kind is SymbolKind.METHOD
+    assert hello.parent == "Greeter"
+    assert [i.text for i in parsed.imports] == ['import "fmt"']
+
+
+def test_java_nested_class_interface_enum_and_constructor() -> None:
+    src = (
+        b"package com.example;\n"
+        b"import java.util.List;\n"
+        b"public class Foo {\n"
+        b"    public Foo(int x) {}\n"
+        b"    public int bar(int y) { return y; }\n"
+        b"    interface Cb { void run(); }\n"
+        b"}\n"
+        b"enum Color { RED, GREEN }\n"
+    )
+    parsed = parse_file("Foo.java", "java", src)
+    kinds = {s.qualified_name: s.kind for s in parsed.symbols}
+    assert kinds["Foo"] is SymbolKind.CLASS
+    assert kinds["Foo.Foo"] is SymbolKind.METHOD  # constructor
+    assert kinds["Foo.bar"] is SymbolKind.METHOD
+    assert kinds["Foo.Cb"] is SymbolKind.INTERFACE
+    assert kinds["Foo.Cb.run"] is SymbolKind.METHOD  # nested interface method
+    assert kinds["Color"] is SymbolKind.ENUM
+    assert _by_name(parsed, "Foo.bar").parent == "Foo"
+
+
+def test_rust_impl_methods_traits_and_modules() -> None:
+    src = (
+        b"use std::fmt;\n"
+        b"pub struct Point { x: i32 }\n"
+        b"impl Point { pub fn new() -> Point { Point { x: 0 } } }\n"
+        b"pub fn add(a: i32, b: i32) -> i32 { a + b }\n"
+        b"trait Draw { fn draw(&self); }\n"
+        b"mod inner { pub fn helper() {} }\n"
+    )
+    parsed = parse_file("lib.rs", "rust", src)
+    kinds = {s.qualified_name: s.kind for s in parsed.symbols}
+    assert kinds["Point"] is SymbolKind.STRUCT
+    assert kinds["Point.new"] is SymbolKind.METHOD  # owned by the impl target type
+    assert kinds["add"] is SymbolKind.FUNCTION
+    assert kinds["Draw"] is SymbolKind.TRAIT
+    assert kinds["Draw.draw"] is SymbolKind.METHOD  # trait method signature
+    assert kinds["inner"] is SymbolKind.MODULE
+    assert kinds["inner.helper"] is SymbolKind.FUNCTION
+    assert _by_name(parsed, "Point.new").parent == "Point"
+
+
 def test_syntactically_broken_code_does_not_crash() -> None:
     # tree-sitter is error-tolerant; extraction should degrade, not raise.
     parsed = parse_file("broken.py", "python", b"def oops(:\n    return\nclass \n")
