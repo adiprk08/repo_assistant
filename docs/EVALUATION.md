@@ -153,6 +153,33 @@ expansion, down-weighted fusion) recorded in **ADR-0011**; the graph's primary
 consumer remains targeted traversal by the Phase 3 agent loop (task 25), not
 blind channel fusion.
 
+### Contextual chunk descriptions (task 26, Stage A) — no lift, kept opt-in
+
+Anthropic-style "contextual retrieval": a Haiku one-liner situating each code
+chunk in its file, folded into the *embedded* text (never the cited span;
+`ra index --enrich`). Measured as a bounded MVP before building the rest of
+enrichment — enrich + re-index click at the pinned commit (only the embed text
+differs from baseline; 308 code chunks across 73 files described), then a
+cost-free retrieval-only A/B on the click-only set:
+
+| Category (click) | Baseline | + descriptions |
+|---|---|---|
+| trace nDCG@10 / recall@5 | **0.75 / 0.80** | 0.74 / 0.80 |
+| architecture nDCG@10 / recall@5 | **0.85 / 0.83** | 0.83 / 0.83 |
+| explain / lookup nDCG@10 | 0.70 / 0.91 | 0.71 / 0.91 |
+
+**No improvement** — identical within noise, marginally *down* on trace/
+architecture. These benchmark questions name symbols the hybrid + symbol channels
+already retrieve well, so an added prose blurb doesn't help find the chunk and
+slightly dilutes the code-focused embedding. Per the plan's gate, Stage A does
+**not** earn rollout, so the file/dir/repo summary hierarchy + repo map (Stage B,
+which would target *generation* context, not retrieval) is **not built**. The
+`--enrich` path and `describe_file_chunks` are kept opt-in and re-measurable;
+decision in **ADR-0013**. What would change it: a natural-language-heavy question
+set over prose-light code where a chunk's purpose is opaque from its text (the
+regime contextual retrieval actually targets) — the same "harder benchmark"
+follow-up the agent loop needs.
+
 ### Intent router + agentic loop (task 25) — parity, kept opt-in
 
 The two-tier reasoning path shipped (ADR-0006): a Haiku router classifies intent

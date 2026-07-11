@@ -23,6 +23,7 @@ class Settings(BaseSettings):
 
     generation_model: str = "claude-opus-4-8"
     router_model: str = "claude-haiku-4-5"
+    enrichment_model: str = "claude-haiku-4-5"
     embedding_model: str = "voyage-code-3"
     embedding_dimensions: int = 1024
     reranker_model: str = "rerank-2.5"

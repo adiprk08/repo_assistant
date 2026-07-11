@@ -7,11 +7,23 @@ import uuid
 from sqlalchemy import func, select
 
 from repo_assistant.core.fakes import FakeEmbedder
+from repo_assistant.core.interfaces import LLMClient, LLMResponse
 from repo_assistant.indexing.pipeline import index_working_tree
 from repo_assistant.storage.models import Chunk, Repo, Snapshot, Symbol
 from tests.integration.conftest import requires_stack
 
 pytestmark = requires_stack
+
+
+class _FakeEnricher(LLMClient):
+    """Returns a context blurb for every chunk index the prompt mentions."""
+
+    async def generate(self, *, messages, system="", documents=None, tools=None, max_tokens=4096):
+        import re
+
+        indices = sorted({int(n) for n in re.findall(r"\[chunk (\d+)\]", messages[-1].content)})
+        body = ", ".join(f'"{i}": "context for chunk {i}"' for i in indices)
+        return LLMResponse(text="{" + body + "}")
 
 
 async def test_index_working_tree_persists_vectors_and_metadata(
@@ -53,6 +65,33 @@ async def test_index_working_tree_persists_vectors_and_metadata(
             .all()
         )
         assert "SessionManager.refresh" in symbols
+
+
+async def test_enriched_indexing_embeds_descriptions_and_keeps_spans(
+    local_repo, qdrant_index, session_factory
+) -> None:
+    # Enrichment folds a description into the embedded text; the stored chunk
+    # payload (the citation span) must stay the raw source.
+    embedder = FakeEmbedder(dimensions=32)
+    result = await index_working_tree(
+        local_repo,
+        embedder=embedder,
+        vector_index=qdrant_index,
+        session_factory=session_factory,
+        enricher=_FakeEnricher(),
+    )
+    assert result.n_chunks > 0
+    # Pull the chunk ids for this snapshot and inspect their payload text.
+    async with session_factory() as session:
+        ids = (
+            (await session.execute(select(Chunk.id).where(Chunk.snapshot_id == result.snapshot_id)))
+            .scalars()
+            .all()
+        )
+    fetched = await qdrant_index.fetch(repo_id=str(result.repo_id), ids=[str(i) for i in ids])
+    # Citation text stays raw source (no injected "context for chunk" blurb).
+    assert all("context for chunk" not in f.payload["text"] for f in fetched)
+    assert any("refresh" in f.payload["text"] for f in fetched)
 
 
 async def test_indexed_vectors_are_queryable_and_tenant_scoped(

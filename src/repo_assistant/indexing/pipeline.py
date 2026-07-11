@@ -17,10 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from repo_assistant.chunking import chunk_code
 from repo_assistant.chunking.models import Chunk
 from repo_assistant.chunking.text import chunk_fallback, chunk_markdown
-from repo_assistant.core.interfaces import Embedder, VectorIndex, VectorPoint
+from repo_assistant.core.interfaces import Embedder, LLMClient, VectorIndex, VectorPoint
 from repo_assistant.core.logging import get_logger
 from repo_assistant.core.sparse import text_to_sparse
 from repo_assistant.graph.extract import SymbolContext, extract_edges
+from repo_assistant.indexing.enrichment import enrich_chunks
 from repo_assistant.ingestion import clone, scan
 from repo_assistant.ingestion.models import Acquisition, FileCategory, ScannedFile
 from repo_assistant.parsing import parse_file
@@ -160,6 +161,7 @@ async def index_repository(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     ref: str | None = None,
     workdir: str | None = None,
+    enricher: LLMClient | None = None,
 ) -> IndexResult:
     """Clone ``url`` and index it. The clone lives only for the duration of indexing."""
     with tempfile.TemporaryDirectory(dir=workdir) as tmp:
@@ -169,6 +171,7 @@ async def index_repository(
             embedder=embedder,
             vector_index=vector_index,
             session_factory=session_factory,
+            enricher=enricher,
         )
 
 
@@ -178,13 +181,22 @@ async def index_working_tree(
     embedder: Embedder,
     vector_index: VectorIndex,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
+    enricher: LLMClient | None = None,
 ) -> IndexResult:
-    """Index an already-acquired working tree (scan -> chunk -> embed -> persist)."""
+    """Index an already-acquired working tree (scan -> chunk -> [enrich] -> embed -> persist).
+
+    When ``enricher`` is set, code chunks get an LLM contextual description folded
+    into their embedded text before embedding (ADR-0002); citation spans are
+    unchanged.
+    """
     session_factory = session_factory or make_session_factory_from_settings()
 
     scan_result = await scan(acquisition)
     chunks, symbol_rows, contexts = await _build_units(acquisition, scan_result.files)
     edges = extract_edges(contexts)
+
+    if enricher is not None:
+        chunks = await enrich_chunks(enricher, chunks)
 
     await vector_index.prepare(embedder.dimensions)
     vectors = await embedder.embed([c.embed_text for c in chunks], input_type="document")

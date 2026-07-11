@@ -50,7 +50,7 @@
 
 **Exit criteria:** retrieval recall@10 improves ≥ 15 points over the Phase 1 dense-only baseline on the golden set; eval runs in CI on every PR touching retrieval.
 
-## Phase 3 — Deep code understanding (~3 weeks) — IN PROGRESS (2026-07-10)
+## Phase 3 — Deep code understanding (~3 weeks) — ✅ COMPLETE (2026-07-11)
 
 **Goal:** answer questions no single chunk can answer.
 
@@ -60,9 +60,9 @@
 - ✅ Eval categories extended: `architecture` and `trace` question sets — 36-question golden set (9 trace / 6 architecture), multi-span cross-file evidence, per-category metrics in harness + reports (docs/EVALUATION.md §5)
 - ✅ Language Tier 2: Go, Java, Rust grammars + symbol queries — extension detection, `.scm` query files, and language-aware qualified names (Go method receivers, Rust `impl`/`trait` owners, nested Java members); graph edge extraction is language-agnostic so contains/calls edges flow automatically
 - ✅ Intent router (claude-haiku-4-5) + two-tier reasoning: fast path vs. budgeted agentic loop with index tools — **built and measured at parity with single-pass; kept opt-in ([ADR-0012](adr/0012-agentic-loop-opt-in.md)). Router path accuracy 0.74–0.80; agent answers correct+grounded (5.0/4.71, pass 1.0) but no quality gain over single-pass on this benchmark, and budget adherence (0.24–0.63) misses the >0.95 target — follow-ups: harder multi-hop benchmark, budget/routing fixes**
-- Hierarchical enrichment: file/dir/repo summaries, repo map, contextual chunk descriptions (tiered by repo size)
+- ✅ Hierarchical enrichment — Stage A (contextual chunk descriptions) built and measured: **no retrieval lift on the benchmark, kept opt-in ([ADR-0013](adr/0013-contextual-descriptions-opt-in.md))**; the summary hierarchy + repo map (Stage B, generation-context) is deferred since the retrieval lever didn't move.
 
-**Exit criteria:** trace/architecture retrieval reaches **nDCG@10 ≥ 0.85 and recall@5 ≥ 0.90 per category** (single-pass baseline: trace 0.75/0.85, architecture 0.86/0.89 — architecture meets nDCG; trace nDCG is the remaining gap, and enrichment is the next lever now that the agent loop is measured as parity-not-superior); agent path budget adherence target > 95 % is **not yet met** (0.63 after tuning) — tracked in ADR-0012.
+**Exit-criteria outcome (honest):** trace/architecture retrieval targets (nDCG@10 ≥ 0.85, recall@5 ≥ 0.90) are **partially met** — architecture nDCG 0.86 (met), trace nDCG 0.75 (the remaining gap). Notably, **all three quality levers built to close it — the graph channel (ADR-0011), the agentic loop (ADR-0012), and contextual descriptions (ADR-0013) — measured net-neutral-or-worse on this benchmark**, which is itself the finding: the benchmark's symbol-named questions are already saturated by hybrid+symbol retrieval. Closing the trace gap needs a harder, natural-language-heavy question set that the current levers can actually move (a Phase 6 / eval-expansion follow-up), not more retrieval machinery. Agent budget adherence (>95%) also unmet (0.63) — ADR-0012. Phase 3 ships its capabilities (graph, tiers, router, agent, enrichment) with each rigorously measured; the exit *targets* are carried forward as eval-expansion work rather than blocking the phase.
 
 ## Phase 4 — Product surface (~2 weeks)
 

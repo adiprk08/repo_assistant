@@ -21,11 +21,15 @@ class Chunk:
     end_line: int
     symbol: str | None  # qualified name of the primary enclosing symbol, if any
     index: int  # 0-based position within the file
+    context: str | None = None  # optional LLM contextual description (docs/adr/0002)
 
     @property
     def embed_text(self) -> str:
-        """What actually gets embedded: breadcrumb context + the code itself."""
-        return f"{self.header}\n\n{self.text}" if self.header else self.text
+        """What actually gets embedded: breadcrumb + optional contextual description
+        + the code itself. The description situates the chunk in its file/repo to
+        aid retrieval; it is never part of the cited ``text``."""
+        parts = [p for p in (self.header, self.context, self.text) if p]
+        return "\n\n".join(parts)
 
     @property
     def line_count(self) -> int:

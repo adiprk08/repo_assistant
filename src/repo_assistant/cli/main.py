@@ -25,9 +25,12 @@ def version() -> None:
 def index(
     github_url: str = typer.Argument(..., help="Public GitHub repository URL."),
     ref: str | None = typer.Option(None, "--ref", help="Branch, tag, or commit to index."),
+    enrich: bool = typer.Option(
+        False, "--enrich", help="Add LLM contextual descriptions to chunks (Haiku; ADR-0002)."
+    ),
 ) -> None:
     """Clone, parse, and index a GitHub repository."""
-    asyncio.run(_index(github_url, ref))
+    asyncio.run(_index(github_url, ref, enrich))
 
 
 @app.command()
@@ -94,19 +97,21 @@ def eval(
     )
 
 
-async def _index(github_url: str, ref: str | None) -> None:
+async def _index(github_url: str, ref: str | None, enrich: bool) -> None:
     from repo_assistant.cli.runtime import build_runtime
     from repo_assistant.indexing.pipeline import index_repository
 
     runtime = build_runtime()
+    enricher = runtime.llm(model=runtime.settings.enrichment_model) if enrich else None
     try:
-        typer.echo(f"Indexing {github_url} ...")
+        typer.echo(f"Indexing {github_url} {'(enriched) ' if enrich else ''}...")
         result = await index_repository(
             github_url,
             embedder=runtime.embedder(),
             vector_index=runtime.vector_index,
             session_factory=runtime.session_factory,
             ref=ref,
+            enricher=enricher,
         )
     except ProviderError as exc:
         raise typer.Exit(code=_fail(str(exc))) from exc

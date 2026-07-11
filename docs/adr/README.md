@@ -16,3 +16,4 @@ Format: Status / Context / Decision / Alternatives considered / Consequences. AD
 | [0010](0010-reranking-disabled-by-default.md) | Reranking disabled by default (measured net-negative) | Accepted |
 | [0011](0011-graph-channel-disabled-by-default.md) | Graph retrieval channel disabled by default (measured net-negative on trace/architecture) | Accepted |
 | [0012](0012-agentic-loop-opt-in.md) | Agentic reasoning path opt-in (measured parity, single-pass stays default) | Accepted |
+| [0013](0013-contextual-descriptions-opt-in.md) | Contextual chunk descriptions opt-in (measured no retrieval lift); summary hierarchy deferred | Accepted |
