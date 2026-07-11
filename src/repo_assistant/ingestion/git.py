@@ -21,6 +21,14 @@ _GITHUB_URL = re.compile(
     r"(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+?)(?:\.git)?/?$"
 )
 
+# A full git object name: 40 hex (SHA-1) or 64 hex (SHA-256). Such a ref can't be
+# a `git clone --branch` target, so it needs a fetch + checkout instead.
+_COMMIT_SHA = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
+
+
+def _looks_like_sha(ref: str) -> bool:
+    return _COMMIT_SHA.fullmatch(ref) is not None
+
 
 def normalize_github_url(url: str) -> str:
     """Validate a GitHub URL and return its canonical https clone form.
@@ -52,15 +60,26 @@ async def _run_git(*args: str, cwd: str | None = None) -> str:
 
 
 async def clone(url: str, dest: str, ref: str | None = None) -> Acquisition:
-    """Blobless-clone ``url`` into ``dest`` and check out ``ref`` (or the default branch)."""
-    clone_url = normalize_github_url(url)
-    args = ["clone", "--filter=blob:none", "--quiet"]
-    if ref:
-        args += ["--branch", ref]
-    args += [clone_url, dest]
+    """Blobless-clone ``url`` into ``dest`` and check out ``ref`` (or the default branch).
 
+    ``ref`` may be a branch name, a tag, or a full commit SHA. A branch/tag is a
+    ``--branch`` target on the clone; a SHA cannot be (``--branch`` only accepts
+    named refs), so it is fetched explicitly and checked out — the object may not
+    be present after a blobless partial clone if it is off the default branch.
+    """
+    clone_url = normalize_github_url(url)
     logger.info("cloning repository", url=clone_url, ref=ref, dest=dest)
-    await _run_git(*args)
+
+    if ref and _looks_like_sha(ref):
+        await _run_git("clone", "--filter=blob:none", "--quiet", "--no-checkout", clone_url, dest)
+        await _run_git("fetch", "--filter=blob:none", "--quiet", "origin", ref, cwd=dest)
+        await _run_git("checkout", "--quiet", ref, cwd=dest)
+    else:
+        args = ["clone", "--filter=blob:none", "--quiet"]
+        if ref:
+            args += ["--branch", ref]
+        args += [clone_url, dest]
+        await _run_git(*args)
 
     commit_sha = (await _run_git("rev-parse", "HEAD", cwd=dest)).strip()
     resolved_ref = ref or (await _run_git("rev-parse", "--abbrev-ref", "HEAD", cwd=dest)).strip()
