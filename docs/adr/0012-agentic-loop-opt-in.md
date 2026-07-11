@@ -1,6 +1,6 @@
 # ADR-0012: Agentic reasoning path opt-in (measured parity)
 
-**Status:** Accepted (2026-07-11) — refines the "agent path" clause of [ADR-0006](0006-reasoning-pipeline.md); single-pass remains the default answering path.
+**Status:** Accepted (2026-07-11) — refines the "agent path" clause of [ADR-0006](0006-reasoning-pipeline.md); single-pass remains the default answering path. **Update (same day):** on the later NL-heavy challenge set (docs/EVALUATION.md §5) the agent path is the one lever that *beats* single-pass (MRR/nDCG +~25 %, recall@10 +10 pts) — so the "no measured benefit" below is specific to the saturated main set; the gain is real but modest at ~25× cost, so opt-in still stands.
 
 ## Context
 

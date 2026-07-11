@@ -173,13 +173,29 @@ Single-pass retrieval **collapses** on it — proof the set discriminates:
 | recall@5 / @10 / @25 | 0.80 / 0.83 / 0.90 | **0.40 / 0.60 / 0.80** |
 
 recall@25 0.80 means the evidence is *reachable* but ranked deep (or missed
-entirely for 20%) — exactly the regime where the levers should help. First fair
-re-test, **contextual descriptions** (cost-free, on the existing enriched
-snapshot): MRR 0.24→0.26, nDCG 0.30→0.32 — a real but tiny lift, recall
-unchanged. So descriptions barely help even here; ADR-0013 stands, strengthened.
-The agent-loop re-test on this set (the lever most likely to help, since it can
-search/read adaptively when the query names nothing) is the outstanding
-measurement.
+entirely for 20%) — exactly the regime where the levers should help.
+
+Re-testing the levers on this fair set (retrieval-only, agent's gathered evidence
+scored against gold):
+
+| Metric | single-pass | + descriptions | agent path |
+|---|---|---|---|
+| MRR | 0.24 | 0.26 | **0.31** |
+| nDCG@10 | 0.30 | 0.32 | **0.37** |
+| recall@10 | 0.60 | 0.60 | **0.70** |
+| recall@25 | 0.80 | 0.80 | 0.80 |
+
+**The agent path is the first lever to beat single-pass on any measured axis** —
+MRR/nDCG +~25 %, recall@10 +10 pts. Its adaptive search/read re-ranks deep
+evidence up, exactly what it's for; recall@25 unchanged means it reorders
+reachable evidence rather than finding the totally-missed (the `debug`
+source-arbitration question stays 0 even for the agent). Contextual descriptions
+give only a tiny lift, as before. So the honest phase conclusion: the levers
+weren't useless — the *old benchmark* was saturated. On a fair, NL-heavy set the
+**agent earns a modest retrieval win** (budget adherence 0.67 here still short of
+>0.95). This vindicates the evaluation discipline: the agent stays opt-in
+(ADR-0012) because the gain is modest at ~25× cost, but the win is real and points
+at where value lives — hard, natural-language questions.
 
 ### Contextual chunk descriptions (task 26, Stage A) — no lift, kept opt-in
 
