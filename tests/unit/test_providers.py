@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from repo_assistant.core.interfaces import Document, Message
+from repo_assistant.core.interfaces import Document, Message, ToolCall, ToolResult
 from repo_assistant.providers.anthropic_client import AnthropicLLMClient, _build_messages
 from repo_assistant.providers.voyage import VoyageEmbedder, VoyageReranker, _batches
 
@@ -84,6 +84,36 @@ def test_build_messages_attaches_documents_to_last_turn() -> None:
     assert text_block == {"type": "text", "text": "now?"}
 
 
+def test_build_messages_renders_tool_use_and_tool_result_turns() -> None:
+    messages = [
+        Message("user", "trace the flow"),
+        Message(
+            "assistant", "searching", tool_calls=(ToolCall("t1", "search_code", {"query": "x"}),)
+        ),
+        Message("user", "", tool_results=(ToolResult("t1", "found a.py:1-3"),)),
+    ]
+    api_messages = _build_messages(messages, [])
+
+    assert api_messages[0] == {"role": "user", "content": "trace the flow"}
+    # Assistant turn: text block + tool_use block.
+    assistant = api_messages[1]
+    assert assistant["role"] == "assistant"
+    text_block, tool_use = assistant["content"]
+    assert text_block == {"type": "text", "text": "searching"}
+    assert tool_use == {
+        "type": "tool_use",
+        "id": "t1",
+        "name": "search_code",
+        "input": {"query": "x"},
+    }
+    # Final user turn is a tool_result (no documents attached on the agent path).
+    (result_block,) = api_messages[2]["content"]
+    assert result_block["type"] == "tool_result"
+    assert result_block["tool_use_id"] == "t1"
+    assert result_block["content"] == "found a.py:1-3"
+    assert result_block["is_error"] is False
+
+
 async def test_anthropic_parses_text_citations_and_usage(monkeypatch) -> None:
     client = AnthropicLLMClient(api_key="test-key")
 
@@ -117,6 +147,43 @@ async def test_anthropic_parses_text_citations_and_usage(monkeypatch) -> None:
     assert result.citations[0].cited_text == "def f(): .."
     assert result.usage.input_tokens == 42
     assert result.usage.cache_read_tokens == 10
+
+
+async def test_agent_calls_apply_prompt_caching(monkeypatch) -> None:
+    client = AnthropicLLMClient(api_key="test-key")
+    response = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text="ok", citations=None)],
+        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+        stop_reason="end_turn",
+    )
+    create = AsyncMock(return_value=response)
+    monkeypatch.setattr(client._client.messages, "create", create)
+
+    await client.generate(
+        messages=[Message("user", "trace it")],
+        system="you are an agent",
+        tools=[{"name": "search_code", "input_schema": {}}],
+    )
+    kwargs = create.call_args.kwargs
+    # System, the last tool, and the last message block are cache-marked.
+    assert kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert kwargs["tools"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert kwargs["messages"][-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+
+
+async def test_fast_path_calls_do_not_cache(monkeypatch) -> None:
+    client = AnthropicLLMClient(api_key="test-key")
+    response = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text="ok", citations=None)],
+        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+        stop_reason="end_turn",
+    )
+    create = AsyncMock(return_value=response)
+    monkeypatch.setattr(client._client.messages, "create", create)
+
+    await client.generate(messages=[Message("user", "what is x?")], system="answer plainly")
+    # No tools -> plain string system, no cache breakpoints.
+    assert create.call_args.kwargs["system"] == "answer plainly"
 
 
 async def test_anthropic_surfaces_tool_calls(monkeypatch) -> None:

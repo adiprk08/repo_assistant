@@ -7,7 +7,7 @@ refuses. Results are written as a JSON report under evals/reports/.
 """
 
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -21,12 +21,25 @@ from repo_assistant.evaluation.models import (
     QuestionResult,
     QuestionSpec,
 )
-from repo_assistant.reasoning import generate_answer
+from repo_assistant.reasoning import answer_routed, generate_answer
 from repo_assistant.reasoning.service import Answer
 from repo_assistant.retrieval import hybrid_retrieve
 from repo_assistant.retrieval.service import RetrievedChunk
 
 logger = get_logger(__name__)
+
+# Which reasoning path each question category should route to (docs/adr/0006).
+_AGENT_CATEGORIES = frozenset({"trace", "architecture", "debug"})
+
+
+def _expected_path(category: str) -> str:
+    return "agent" if category in _AGENT_CATEGORIES else "fast"
+
+
+def _router_correct(category: str, path: str) -> bool:
+    # Negatives are answerable either way; any path counts as correct.
+    return True if category == "negative" else path == _expected_path(category)
+
 
 _CORRECTNESS_PASS = 4
 _RETRIEVE_K = 25  # rank depth for retrieval metrics; generation uses the top slice
@@ -135,6 +148,51 @@ def _retrieval_only_result(spec: QuestionSpec, ranking: dict[str, float]) -> Que
     )
 
 
+async def _run_agentic_question(
+    spec: QuestionSpec,
+    resolved,
+    runtime: Runtime,
+    embedder,
+    llm,
+    router_llm,
+    reranker,
+    *,
+    retrieval_only: bool,
+) -> QuestionResult:
+    """Route the question, then score the evidence the chosen path gathered.
+
+    In retrieval-only mode the loop gathers but does not generate (no judge, no
+    final answer) — cheap enough to measure the trace/architecture exit criteria.
+    """
+    routed = await answer_routed(
+        repo_id=str(resolved.repo_id),
+        snapshot_id=str(resolved.snapshot_id),
+        commit=resolved.commit_sha,
+        question=spec.question,
+        embedder=embedder,
+        vector_index=runtime.vector_index,
+        session_factory=runtime.session_factory,
+        llm=llm,
+        router_llm=router_llm,
+        reranker=reranker,
+        budget=runtime.settings.agent_tool_call_budget,
+        gather_only=retrieval_only,
+    )
+    ranked = [RankedChunk(c.path, c.start_line, c.end_line) for c in routed.chunks]
+    ranking = _ranking_metrics(spec, ranked)
+    if retrieval_only or routed.answer is None:
+        result = _retrieval_only_result(spec, ranking)
+    else:
+        result = await _run_question(spec, routed.answer, ranking, llm, set(spec.expected_files))
+    return replace(
+        result,
+        path=routed.path,
+        n_tool_calls=routed.n_tool_calls,
+        forced_stop=routed.forced_stop,
+        router_correct=_router_correct(spec.category, routed.path),
+    )
+
+
 async def run_dataset(
     dataset: DatasetSpec,
     runtime: Runtime,
@@ -144,15 +202,35 @@ async def run_dataset(
     use_graph: bool = False,
     use_rerank: bool = True,
     retrieval_only: bool = False,
+    agentic: bool = False,
 ) -> EvalReport:
     resolved = await resolve_indexed_repo(runtime, dataset.repo_url)
     embedder, llm = runtime.embedder(), runtime.llm()
     reranker = runtime.reranker()
+    router_llm = runtime.llm(model=runtime.settings.router_model) if agentic else None
     report = EvalReport(dataset=resolved.url, repo_url=dataset.repo_url)
 
     for spec in dataset.questions:
-        # One retrieval at full depth: metrics score the ranked list, generation
-        # uses the top slice (no double embedding of the query).
+        # Agentic mode routes each question through the router + fast/agent path and
+        # scores the evidence that path gathered (docs/adr/0006). Works in both the
+        # judged (full) and cheap retrieval-only variants.
+        if agentic:
+            result = await _run_agentic_question(
+                spec,
+                resolved,
+                runtime,
+                embedder,
+                llm,
+                router_llm,
+                reranker,
+                retrieval_only=retrieval_only,
+            )
+            report.results.append(result)
+            logger.info("eval question", id=spec.id, passed=result.passed, path=result.path)
+            continue
+
+        # Single-pass: one retrieval at full depth. Metrics score the ranked list;
+        # generation uses the top slice (no double embedding of the query).
         retrieved = await hybrid_retrieve(
             str(resolved.repo_id),
             str(resolved.snapshot_id),

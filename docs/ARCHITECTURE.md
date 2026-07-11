@@ -135,13 +135,12 @@ query ──▶ understand ──▶ candidate channels (parallel) ──▶ RRF
 
 ## 6. Reasoning pipeline
 
-Two tiers behind an intent router ([ADR-0006](adr/0006-reasoning-pipeline.md)):
+Two tiers behind an intent router ([ADR-0006](adr/0006-reasoning-pipeline.md)). Implemented; the agent path is **opt-in** — measured at parity with single-pass on the current benchmark, so single-pass is the default ([ADR-0012](adr/0012-agentic-loop-opt-in.md)).
 
-- **Router** — claude-haiku-4-5 classifies intent (`lookup | explain | architecture | trace | debug | other`) and estimates hop-count. Cheap, logged, evaluated.
-- **Fast path** (lookup/explain, single-hop): one retrieval pass → grounded generation. Latency target < 10 s to first token.
-- **Agent path** (architecture/trace/debug, multi-hop): claude-opus-4-8 with read-only tools over the **index** (never the live filesystem — snapshot consistency):
-  `search_code(query, filters)`, `read_span(path, start, end)`, `get_symbol(name)`, `graph_neighbors(symbol, kind)`, `list_dir(path)`.
-  Budget: ≤ 8 tool calls, then a forced final answer. Adaptive thinking on; effort tuned per route.
+- **Router** — claude-haiku-4-5 classifies intent (`lookup | explain | architecture | trace | debug | other`) and flags multi-hop likelihood. Cheap, logged, evaluated (path accuracy 0.74–0.80).
+- **Fast path** (lookup/explain, single-hop): one retrieval pass → grounded generation. The validated default.
+- **Agent path (opt-in)** (architecture/trace/debug, multi-hop): claude-opus-4-8 in a tool-use loop with read-only tools over the **index** (never the live filesystem — snapshot consistency):
+  `search_code`, `read_span`, `get_symbol`, `graph_neighbors`, `list_dir`. The loop *gathers* evidence, then hands it to the same grounded-generation stage as the fast path. Budget: ≤ 8 tool calls (`agent_tool_call_budget`); the constant system + tool schemas and the growing context are prompt-cached. Reach it with `ra chat --path agent`.
 
 **Grounding and citations** ([ADR-0007](adr/0007-llm-provider-and-models.md)):
 

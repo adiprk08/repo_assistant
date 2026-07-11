@@ -153,6 +153,42 @@ expansion, down-weighted fusion) recorded in **ADR-0011**; the graph's primary
 consumer remains targeted traversal by the Phase 3 agent loop (task 25), not
 blind channel fusion.
 
+### Intent router + agentic loop (task 25) — parity, kept opt-in
+
+The two-tier reasoning path shipped (ADR-0006): a Haiku router classifies intent
+and routes to the fast single-pass path or a budgeted Opus tool-use loop over the
+index (`search_code`, `get_symbol`, `read_span`, `graph_neighbors`, `list_dir`).
+Measured on the 54-question set (`ra eval --agentic`; retrieval-only for the
+cheap proxy, judged on click for answer quality):
+
+| Signal | Result |
+|---|---|
+| Router path accuracy (vs category) | 0.74–0.80 |
+| Agent judged answer correctness (click, 20 Q) | **5.00** (single-pass 4.97) |
+| Agent judged groundedness / pass rate | 4.71 / **1.00** |
+| Citations per agent answer | 13–25 (single-pass ~8) |
+| Budget adherence (in-budget rate) | 0.63 overall, **0.24 on click** |
+| Avg tool calls (budget 8) | 5.7 overall, 7.7 on click |
+
+**Verdict: the agent path works but is at parity, not superior — kept opt-in.**
+It produces fully correct, well-grounded, richly-cited answers that trace flows
+across files, but single-pass hybrid retrieval already answers these benchmark
+questions correctly (both ~5.0 correctness, pass 1.0), so the agent's extra
+exploration doesn't move the judged needle — at ~25× the cost/latency. The
+retrieval-only proxy actually scores the agent *below* single-pass on trace
+(nDCG 0.68 vs 0.75), but that metric is unfair to the agent: it ranks the agent's
+*unordered* gathered evidence with rank-sensitive metrics (the agent gathers the
+evidence — architecture recall@10 1.0 — just not ranked early). Same discipline
+as reranking (ADR-0010) and the graph channel (ADR-0011): no measured benefit on
+the current benchmark → not the default. Decision + what would change it (a
+harder multi-hop benchmark where single-pass genuinely fails; budget-adherence
+and router-over-routing fixes) in **ADR-0012**.
+
+**Known gap:** budget adherence (0.24 on click) misses the Phase 3 exit criterion
+(>0.95). Tightening the agent's stop prompt lifted it from 0.34→0.63 overall, but
+click's deep call chains still consume the full budget; raising the budget or
+better stopping is follow-up work.
+
 ### Tier 2 language coverage — Go/Java/Rust benchmark repos (task 23)
 
 Three small canonical repos added to validate the new grammars end to end:

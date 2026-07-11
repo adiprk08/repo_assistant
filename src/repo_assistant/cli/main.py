@@ -6,9 +6,7 @@ import typer
 
 from repo_assistant import __version__
 from repo_assistant.core.errors import NotFoundError, ProviderError
-from repo_assistant.reasoning import generate_answer
 from repo_assistant.reasoning.service import Answer
-from repo_assistant.retrieval import hybrid_retrieve
 
 app = typer.Typer(
     name="ra",
@@ -35,9 +33,12 @@ def index(
 @app.command()
 def chat(
     repo: str = typer.Argument(..., help="Repository URL or id of an already-indexed repo."),
+    path: str = typer.Option(
+        "auto", "--path", help="Reasoning path: auto (router), fast, or agent."
+    ),
 ) -> None:
     """Start an interactive, cited chat session over an indexed repository."""
-    asyncio.run(_chat(repo))
+    asyncio.run(_chat(repo, path))
 
 
 @app.command()
@@ -64,6 +65,11 @@ def eval(
         "--retrieval-only",
         help="Score retrieval metrics only (no generation/judge, no LLM cost).",
     ),
+    agentic: bool = typer.Option(
+        False,
+        "--agentic",
+        help="Route each question through the intent router + fast/agent path (ADR-0006).",
+    ),
     gate: bool = typer.Option(
         False, "--gate", help="Exit non-zero if overall retrieval drops below the regression floor."
     ),
@@ -82,6 +88,7 @@ def eval(
             use_graph=not dense_only and graph,
             use_rerank=rerank,
             retrieval_only=retrieval_only,
+            agentic=agentic,
             gate=gate,
         )
     )
@@ -115,9 +122,16 @@ async def _index(github_url: str, ref: str | None) -> None:
     typer.echo(f"\nChat with it:  ra chat {result.repo_id}")
 
 
-async def _chat(identifier: str) -> None:
-    from repo_assistant.cli.runtime import build_runtime, resolve_indexed_repo
+async def _chat(identifier: str, path: str) -> None:
+    from typing import cast
 
+    from repo_assistant.cli.runtime import build_runtime, resolve_indexed_repo
+    from repo_assistant.reasoning import answer_routed
+    from repo_assistant.reasoning.router import Path
+
+    if path not in ("auto", "fast", "agent"):
+        raise typer.Exit(code=_fail("--path must be one of: auto, fast, agent"))
+    force_path: Path | None = None if path == "auto" else cast(Path, path)
     runtime = build_runtime()
     try:
         try:
@@ -127,8 +141,7 @@ async def _chat(identifier: str) -> None:
 
         embedder = runtime.embedder()
         llm = runtime.llm()
-        # Reranking measured net-negative on code retrieval (docs/EVALUATION.md §5);
-        # the RRF-fused dense+symbol order is used directly.
+        router_llm = runtime.llm(model=runtime.settings.router_model)
         typer.secho(f"Chatting with {resolved.url} @ {resolved.commit_sha[:12]}", bold=True)
         typer.echo("Ask a question (empty line or Ctrl-C to quit).\n")
 
@@ -142,22 +155,29 @@ async def _chat(identifier: str) -> None:
                 typer.echo("Bye.")
                 break
             try:
-                retrieved = await hybrid_retrieve(
-                    str(resolved.repo_id),
-                    str(resolved.snapshot_id),
-                    question,
+                routed = await answer_routed(
+                    repo_id=str(resolved.repo_id),
+                    snapshot_id=str(resolved.snapshot_id),
+                    commit=resolved.commit_sha,
+                    question=question,
                     embedder=embedder,
                     vector_index=runtime.vector_index,
                     session_factory=runtime.session_factory,
-                    commit=resolved.commit_sha,
-                    use_graph=False,
-                    use_rerank=False,
-                )  # dense+sparse+symbol, RRF-fused (graph opt-in, pending trace eval)
-                answer = await generate_answer(question, retrieved, llm=llm)
+                    llm=llm,
+                    router_llm=router_llm,
+                    force_path=force_path,
+                    budget=runtime.settings.agent_tool_call_budget,
+                )
             except ProviderError as exc:
                 typer.secho(f"  provider error: {exc}", fg=typer.colors.RED)
                 continue
-            _print_answer(answer)
+            path_note = f"[{routed.path}"
+            if routed.path == "agent":
+                path_note += f", {routed.n_tool_calls} tool calls"
+                path_note += ", budget hit" if routed.forced_stop else ""
+            typer.secho(f"{path_note}]", fg=typer.colors.MAGENTA)
+            if routed.answer is not None:
+                _print_answer(routed.answer)
     finally:
         await runtime.aclose()
 
@@ -170,6 +190,7 @@ async def _eval(
     use_graph: bool,
     use_rerank: bool,
     retrieval_only: bool,
+    agentic: bool,
     gate: bool,
 ) -> None:
     from pathlib import Path
@@ -200,6 +221,7 @@ async def _eval(
                         use_graph=use_graph,
                         use_rerank=use_rerank,
                         retrieval_only=retrieval_only,
+                        agentic=agentic,
                     )
                 )
             except (NotFoundError, ProviderError) as exc:
@@ -213,11 +235,12 @@ async def _eval(
         )
         config = {
             "generation_model": None if retrieval_only else runtime.settings.generation_model,
+            "router_model": runtime.settings.router_model if agentic else None,
             "embedding_model": runtime.settings.embedding_model,
             "embedding_dimensions": runtime.settings.embedding_dimensions,
             "reranker_model": runtime.settings.reranker_model if use_rerank else None,
             "retrieval": f"{channels}{' +rerank' if use_rerank else ''}",
-            "mode": "retrieval-only" if retrieval_only else "full",
+            "mode": "retrieval-only" if retrieval_only else ("agentic" if agentic else "full"),
         }
         report_path = write_report(reports, config, Path("evals/reports"))
         await persist_report(reports, config, runtime)

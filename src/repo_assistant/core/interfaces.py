@@ -12,9 +12,33 @@ from typing import Any, Literal
 
 
 @dataclass(frozen=True, slots=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResult:
+    tool_use_id: str
+    content: str
+    is_error: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class Message:
+    """A conversation turn.
+
+    Fast-path turns carry plain ``content``. The agentic loop additionally uses
+    ``tool_calls`` on an assistant turn (the tools it requested) and
+    ``tool_results`` on the following user turn (the outputs fed back). Both
+    default empty, so the single-pass path is untouched.
+    """
+
     role: Literal["user", "assistant"]
     content: str
+    tool_calls: tuple["ToolCall", ...] = ()
+    tool_results: tuple["ToolResult", ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,13 +47,6 @@ class Citation:
     start_char: int
     end_char: int
     cited_text: str
-
-
-@dataclass(frozen=True, slots=True)
-class ToolCall:
-    id: str
-    name: str
-    arguments: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)

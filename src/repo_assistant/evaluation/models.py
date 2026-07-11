@@ -71,6 +71,11 @@ class QuestionResult:
     passed: bool  # overall per-question verdict
     rationale: str
     ranking: dict[str, float] = field(default_factory=dict)  # recall@k, mrr, ndcg
+    # Routing metadata (agentic eval mode only; empty path means not routed).
+    path: str = ""  # "fast" | "agent"
+    n_tool_calls: int = 0
+    forced_stop: bool = False  # agent hit the tool-call budget
+    router_correct: bool = False  # router path matched the category's expected path
 
 
 @dataclass(slots=True)
@@ -99,6 +104,17 @@ class EvalReport:
             "negative_handled_rate": self._mean([float(r.passed) for r in negatives]),
             "pass_rate": self._mean([float(r.passed) for r in self.results]),
         }
+        # Routing metrics, present only when the run went through the router (agentic).
+        routed = [r for r in self.results if r.path]
+        if routed:
+            summary["router_path_accuracy"] = self._mean([float(r.router_correct) for r in routed])
+            summary["agent_path_share"] = self._mean([float(r.path == "agent") for r in routed])
+            agent_path = [r for r in routed if r.path == "agent"]
+            if agent_path:
+                summary["budget_ok_rate"] = self._mean(
+                    [float(not r.forced_stop) for r in agent_path]
+                )
+                summary["avg_tool_calls"] = self._mean([r.n_tool_calls for r in agent_path])
         # Span/file-level ranking metrics, averaged over positives that carry them.
         ranking_keys = {key for r in positives for key in r.ranking}
         for key in sorted(ranking_keys):

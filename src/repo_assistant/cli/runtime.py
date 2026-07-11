@@ -33,8 +33,9 @@ class Runtime:
         inner = get_embedder(self.settings)
         return CachingEmbedder(inner, EmbeddingCacheStore(self.session_factory))
 
-    def llm(self) -> LLMClient:
-        return get_llm_client(self.settings)
+    def llm(self, *, model: str | None = None) -> LLMClient:
+        """The generation LLM (Opus by default); pass ``model`` for the router (Haiku)."""
+        return get_llm_client(self.settings, model=model)
 
     def reranker(self) -> Reranker | None:
         return get_reranker(self.settings)

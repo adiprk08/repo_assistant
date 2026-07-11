@@ -5,10 +5,10 @@ two axes — correctness and groundedness — returning a small JSON object we p
 Kept model-agnostic behind ``LLMClient``; the judge model id is configuration.
 """
 
-import json
 from dataclasses import dataclass
 
 from repo_assistant.core.interfaces import LLMClient, Message
+from repo_assistant.core.json_parse import extract_json_object
 from repo_assistant.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -57,17 +57,6 @@ def _clamp(value: object) -> int:
         return 1
 
 
-def _extract_json(text: str) -> dict | None:
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end == -1:
-        return None
-    try:
-        parsed = json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
-
-
 async def _judge_json(
     llm: LLMClient, *, system: str, prompt: str, attempts: int = 2
 ) -> dict | None:
@@ -83,7 +72,7 @@ async def _judge_json(
             system=system,
             max_tokens=_JUDGE_MAX_TOKENS,
         )
-        data = _extract_json(response.text.strip())
+        data = extract_json_object(response.text.strip())
         if data is not None:
             return data
         logger.warning("judge output not parseable JSON", attempt=attempt, text=response.text[:200])

@@ -18,6 +18,7 @@ from repo_assistant.core.interfaces import (
     LLMResponse,
     Message,
     ToolCall,
+    ToolResult,
     Usage,
 )
 from repo_assistant.core.logging import get_logger
@@ -34,20 +35,83 @@ def _document_block(doc: Document) -> dict[str, Any]:
     }
 
 
+def _tool_use_block(call: ToolCall) -> dict[str, Any]:
+    return {"type": "tool_use", "id": call.id, "name": call.name, "input": call.arguments}
+
+
+def _tool_result_block(result: ToolResult) -> dict[str, Any]:
+    return {
+        "type": "tool_result",
+        "tool_use_id": result.tool_use_id,
+        "content": result.content,
+        "is_error": result.is_error,
+    }
+
+
+def _render_turn(message: Message) -> dict[str, Any]:
+    """Render one agentic-loop turn (tool_use on assistant, tool_result on user)."""
+    content: list[dict[str, Any]] = []
+    if message.content:
+        content.append({"type": "text", "text": message.content})
+    content.extend(_tool_use_block(c) for c in message.tool_calls)
+    content.extend(_tool_result_block(r) for r in message.tool_results)
+    return {"role": message.role, "content": content}
+
+
 def _build_messages(messages: list[Message], documents: list[Document]) -> list[dict[str, Any]]:
-    """Render conversation turns to the API shape, attaching documents to the
-    final user turn so citations anchor to the question being answered."""
+    """Render conversation turns to the API shape.
+
+    On the fast path each turn is plain text and documents attach to the final
+    user turn so citations anchor to the question. Agentic-loop turns carry
+    ``tool_calls``/``tool_results`` and render to structured content blocks.
+    """
     if not messages:
         raise ProviderError("generate() requires at least one message")
 
-    api_messages: list[dict[str, Any]] = [
-        {"role": m.role, "content": m.content} for m in messages[:-1]
-    ]
+    api_messages: list[dict[str, Any]] = []
+    for m in messages[:-1]:
+        if m.tool_calls or m.tool_results:
+            api_messages.append(_render_turn(m))
+        else:
+            api_messages.append({"role": m.role, "content": m.content})
+
     last = messages[-1]
+    if last.tool_calls or last.tool_results:
+        api_messages.append(_render_turn(last))
+        return api_messages
+
     content: list[dict[str, Any]] = [_document_block(d) for d in documents]
     content.append({"type": "text", "text": last.content})
     api_messages.append({"role": last.role, "content": content})
     return api_messages
+
+
+_CACHE_CONTROL = {"type": "ephemeral"}
+
+
+def _cached_system(system: str) -> list[dict[str, Any]]:
+    return [{"type": "text", "text": system, "cache_control": _CACHE_CONTROL}]
+
+
+def _cached_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mark the last tool so the (constant) tool-schema prefix is cached."""
+    cached = [dict(t) for t in tools]
+    cached[-1] = {**cached[-1], "cache_control": _CACHE_CONTROL}
+    return cached
+
+
+def _cache_message_prefix(api_messages: list[dict[str, Any]]) -> None:
+    """Cache-mark the last content block so the growing message prefix is reused
+    on the next agent turn (Anthropic caches everything up to the marked block)."""
+    if not api_messages:
+        return
+    content = api_messages[-1]["content"]
+    if isinstance(content, str):
+        api_messages[-1]["content"] = [
+            {"type": "text", "text": content, "cache_control": _CACHE_CONTROL}
+        ]
+    elif content:
+        content[-1] = {**content[-1], "cache_control": _CACHE_CONTROL}
 
 
 class AnthropicLLMClient(LLMClient):
@@ -70,15 +134,24 @@ class AnthropicLLMClient(LLMClient):
     ) -> LLMResponse:
         # Build kwargs so optional params are simply absent when unset; this also
         # keeps us clear of the SDK's precise TypedDict overloads for dict payloads.
+        api_messages = _build_messages(messages, documents or [])
         kwargs: dict[str, Any] = {
             "model": self._model,
             "max_tokens": max_tokens,
-            "messages": _build_messages(messages, documents or []),
+            "messages": api_messages,
         }
-        if system:
-            kwargs["system"] = system
+        # Prompt caching is worthwhile only for the agentic loop, where the system
+        # prompt + tool schemas are constant and the context accumulates across
+        # calls (the fast path and judge are single-shot). Presence of `tools` is
+        # exactly that signal, so we scope caching to it (docs/adr/0007).
         if tools:
-            kwargs["tools"] = tools
+            if system:
+                kwargs["system"] = _cached_system(system)
+            kwargs["tools"] = _cached_tools(tools)
+            _cache_message_prefix(api_messages)
+        else:
+            if system:
+                kwargs["system"] = system
 
         try:
             response = await self._client.messages.create(**kwargs)

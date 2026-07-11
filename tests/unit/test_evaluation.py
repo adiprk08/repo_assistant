@@ -107,6 +107,55 @@ def test_by_category_groups_ranking_metrics_and_pass_rate() -> None:
     assert by_category["negative"] == {"questions": 1, "pass_rate": 1.0}
 
 
+def test_router_expected_path_and_correctness() -> None:
+    from repo_assistant.evaluation.harness import _expected_path, _router_correct
+
+    assert _expected_path("trace") == "agent"
+    assert _expected_path("architecture") == "agent"
+    assert _expected_path("lookup") == "fast"
+    assert _router_correct("trace", "agent") is True
+    assert _router_correct("trace", "fast") is False
+    # Negatives are answerable by either path.
+    assert _router_correct("negative", "agent") is True
+
+
+def test_summary_includes_routing_metrics_in_agentic_mode() -> None:
+    report = EvalReport(
+        dataset="d",
+        repo_url="u",
+        results=[
+            _result(
+                id="t1",
+                category="trace",
+                path="agent",
+                n_tool_calls=4,
+                forced_stop=False,
+                router_correct=True,
+            ),
+            _result(
+                id="t2",
+                category="trace",
+                path="agent",
+                n_tool_calls=8,
+                forced_stop=True,
+                router_correct=True,
+            ),
+            _result(id="l1", category="lookup", path="fast", router_correct=True),
+            _result(id="l2", category="lookup", path="agent", router_correct=False),
+        ],
+    )
+    summary = report.summary()
+    assert summary["router_path_accuracy"] == 0.75  # 3 of 4 routed correctly
+    assert summary["agent_path_share"] == 0.75  # 3 of 4 took the agent path
+    assert summary["budget_ok_rate"] == round(2 / 3, 2)  # 2 of 3 agent runs stayed in budget
+    assert summary["avg_tool_calls"] == round((4 + 8 + 0) / 3, 2)
+
+
+def test_summary_omits_routing_metrics_without_routing() -> None:
+    report = EvalReport(dataset="d", repo_url="u", results=[_result(id="p1")])
+    assert "router_path_accuracy" not in report.summary()
+
+
 def test_summary_of_empty_report_is_zeroed() -> None:
     summary = EvalReport(dataset="d", repo_url="u").summary()
     assert summary["questions"] == 0

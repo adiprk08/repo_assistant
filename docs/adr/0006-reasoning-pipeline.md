@@ -1,6 +1,6 @@
 # ADR-0006: Two-tier reasoning — routed fast RAG and a budgeted agentic loop
 
-**Status:** Accepted (2026-07-07)
+**Status:** Accepted (2026-07-07); implemented Phase 3 (2026-07-11) — router, five index tools, budgeted loop, prompt caching. Measured at **parity** with single-pass on the benchmark, so the agent path is **opt-in**, not the default ([ADR-0012](0012-agentic-loop-opt-in.md)).
 
 ## Context
 

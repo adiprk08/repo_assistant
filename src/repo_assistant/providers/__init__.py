@@ -36,11 +36,13 @@ def get_embedder(settings: Settings | None = None) -> Embedder:
     )
 
 
-def get_llm_client(settings: Settings | None = None) -> LLMClient:
+def get_llm_client(settings: Settings | None = None, *, model: str | None = None) -> LLMClient:
     settings = settings or get_settings()
     if not settings.anthropic_api_key:
         raise ProviderError("No LLM provider configured: set RA_ANTHROPIC_API_KEY.")
-    return AnthropicLLMClient(api_key=settings.anthropic_api_key, model=settings.generation_model)
+    return AnthropicLLMClient(
+        api_key=settings.anthropic_api_key, model=model or settings.generation_model
+    )
 
 
 def get_reranker(settings: Settings | None = None) -> Reranker | None:
