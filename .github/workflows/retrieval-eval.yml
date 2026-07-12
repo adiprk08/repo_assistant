@@ -3,8 +3,9 @@
 # retrieval drops below the regression floor. No LLM generation/judging, so the
 # only external cost is Voyage embeddings (well within the free allowance).
 #
-# Requires the repo secret RA_VOYAGE_API_KEY. Skipped for PRs from forks, which
-# cannot access secrets.
+# Needs the repo secret RA_VOYAGE_API_KEY. When it is absent (forks, or a repo
+# where the secret hasn't been configured) the gate is skipped rather than failed,
+# so the check stays green — the `check-secret` job gates the run.
 name: Retrieval gate
 
 on:
@@ -20,9 +21,30 @@ on:
       - "evals/**"
 
 jobs:
-  retrieval-gate:
+  # A job-level `if:` cannot read `secrets`, so probe the secret here and expose
+  # the result as an output the gate job can gate on.
+  check-secret:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    outputs:
+      has-key: ${{ steps.probe.outputs.has-key }}
+    steps:
+      - id: probe
+        env:
+          RA_VOYAGE_API_KEY: ${{ secrets.RA_VOYAGE_API_KEY }}
+        run: |
+          if [ -n "$RA_VOYAGE_API_KEY" ]; then
+            echo "has-key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-key=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::RA_VOYAGE_API_KEY secret not set — skipping the retrieval gate."
+          fi
+
+  retrieval-gate:
+    needs: check-secret
+    runs-on: ubuntu-latest
+    if: >-
+      needs.check-secret.outputs.has-key == 'true' &&
+      (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
     services:
       postgres:
         image: postgres:17-alpine
