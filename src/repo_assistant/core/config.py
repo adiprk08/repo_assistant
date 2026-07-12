@@ -1,11 +1,24 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# The repo-root .env, resolved from this file's location (…/src/repo_assistant/core/).
+# Anchoring it absolutely means `ra` finds secrets no matter which directory it is
+# launched from — a relative ".env" only loads when the CWD happens to be the root.
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="RA_", extra="ignore")
+    # Load a CWD-local .env if present, then the repo-root one (later wins); real
+    # environment variables still take precedence over both, and a missing file is
+    # simply ignored — so deployments that inject env vars are unaffected.
+    model_config = SettingsConfigDict(
+        env_file=(".env", str(_PROJECT_ROOT / ".env")),
+        env_prefix="RA_",
+        extra="ignore",
+    )
 
     environment: Literal["dev", "test", "prod"] = "dev"
     log_level: str = "INFO"
