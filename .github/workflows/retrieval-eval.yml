@@ -1,7 +1,11 @@
-# Retrieval smoke gate (docs/EVALUATION.md §4). Indexes the benchmark repos and
-# runs the retrieval-only ablation with --gate, failing the build if overall
-# retrieval drops below the regression floor. No LLM generation/judging, so the
-# only external cost is Voyage embeddings (well within the free allowance).
+# Retrieval smoke gate (docs/EVALUATION.md §4). Indexes every benchmark repo — all
+# six, each pinned to the commit in evals/repos.yaml so the golden span labels line
+# up and the run is deterministic — then runs the retrieval-only ablation with
+# --gate, failing the build if overall retrieval drops below the regression floor.
+# No LLM generation/judging, so the only external cost is Voyage embeddings.
+#
+# The repo list is read from evals/repos.yaml at run time, so adding a benchmark
+# repo there is automatically covered here (no second list to keep in sync).
 #
 # Needs the repo secret RA_VOYAGE_API_KEY. When it is absent (forks, or a repo
 # where the secret hasn't been configured) the gate is skipped rather than failed,
@@ -71,10 +75,19 @@ jobs:
       - run: uv python install 3.12
       - run: uv sync --all-groups
       - run: uv run alembic upgrade head
-      - name: Index benchmark repos
+      - name: Index benchmark repos (all, pinned from evals/repos.yaml)
         run: |
-          uv run ra index https://github.com/sindresorhus/is-plain-obj
-          uv run ra index https://github.com/sindresorhus/yocto-queue
-          uv run ra index https://github.com/pallets/click
+          uv run python - <<'PY'
+          import subprocess, sys, yaml
+
+          repos = yaml.safe_load(open("evals/repos.yaml"))["repos"]
+          for r in repos:
+              name, url, commit = r["name"], r["url"], r["commit"]
+              print(f"::group::index {name} @ {commit[:12]}")
+              result = subprocess.run(["uv", "run", "ra", "index", url, "--ref", commit])
+              print("::endgroup::")
+              if result.returncode != 0:
+                  sys.exit(f"::error::indexing {name} ({url}@{commit}) failed")
+          PY
       - name: Retrieval gate
         run: uv run ra eval --retrieval-only --gate
