@@ -86,7 +86,7 @@
 - 🟡 Private repositories — **server-side machinery shipped** ([ADR-0020](adr/0020-private-repositories.md)): GitHub App JWT → installation-token exchange, Fernet-encrypted token cache, authenticated clone, data model + registration wiring. Remaining: the interactive install redirect + `installation` webhook, token-key rotation, revoke-on-uninstall
 - 🟡 Observability — **shipped** ([ADR-0019](adr/0019-observability.md)): OTLP-native OTel traces (Langfuse/Jaeger/Tempo via OTLP, no vendor SDK) + Prometheus `/metrics` (HTTP, ingestion stages, retrieval, embedding cache, LLM token spend, citation drops). Remaining: Grafana dashboards + alert rules, router-disagreement metric, worker-process metrics
 - ✅ Security pass ([ADR-0021](adr/0021-security-pass.md)): content-level secret scanning (not just filenames), read-only-agent injection posture locked by tests, `pip-audit` in CI (no known vulns); [SECURITY.md](../SECURITY.md) added
-- Scale validation: index a 50k-file repo within time/cost budget; incremental update touches only changed files (verified)
+- ✅ Scale validation ([docs/SCALE.md](SCALE.md), `scripts/scale_bench.py`): measured ~185 files/s structural throughput (→ 50k in ~4–5 min), incremental reprocesses **exactly** the changed files (30/3000 verified), first-index embedding cost documented + bounded by the cache/diff. Full 50k real-embedding run left as a documented projection to avoid one-off spend
 - Deployment: production compose / single-VM guide; container images in CI
 
 **Exit criteria:** webhook-driven re-index lands in minutes touching only the diff; 50k-file repo indexed within documented budget; dashboards show cost/latency/quality telemetry.
