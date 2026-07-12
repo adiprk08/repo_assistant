@@ -1,6 +1,6 @@
 # Roadmap
 
-> Status: **Phase 5 in progress** (updated 2026-07-12) — Phases 0–4 complete; incremental indexing + webhooks landed. Estimates assume focused part-time development with AI assistance; phases are sequential but each ships something usable.
+> Status: **Phases 0–5 COMPLETE** (updated 2026-07-12) — Phase 6 (extensions) is next. Estimates assume focused part-time development with AI assistance; phases are sequential but each ships something usable.
 
 ## Guiding principles
 
@@ -78,18 +78,18 @@
 
 **Deferred to Phase 5 (noted in the ADRs):** a multi-turn eval set to measure follow-up condensation ([ADR-0015](adr/0015-conversation-memory.md)); per-session chunk-ID re-expansion; a first-party in-app file viewer (content endpoint) beyond GitHub deep-links; per-key scopes/quotas + auth-failure metrics.
 
-## Phase 5 — Production hardening (~2–3 weeks)
+## Phase 5 — Production hardening (~2–3 weeks) — ✅ COMPLETE (2026-07-12)
 
-**Goal:** run it for real, keep it fresh, keep it safe. **In progress.**
+**Goal:** run it for real, keep it fresh, keep it safe. All six workstreams shipped; the remaining polish (Grafana dashboards, the GitHub App install-flow UI) is opt-in and carried to Phase 6.
 
 - 🟡 Incremental indexing — **core shipped** ([ADR-0018](adr/0018-incremental-indexing.md)): content-hash diff, copy-forward unchanged (rows + Qdrant points), atomic new snapshot; `ra update` + enqueued `update` job + **HMAC-verified GitHub push webhook** (`POST /webhooks/github`). Remaining: summary staleness budgets, polling trigger, snapshot GC, 50k-file scale validation
 - 🟡 Private repositories — **server-side machinery shipped** ([ADR-0020](adr/0020-private-repositories.md)): GitHub App JWT → installation-token exchange, Fernet-encrypted token cache, authenticated clone, data model + registration wiring. Remaining: the interactive install redirect + `installation` webhook, token-key rotation, revoke-on-uninstall
 - 🟡 Observability — **shipped** ([ADR-0019](adr/0019-observability.md)): OTLP-native OTel traces (Langfuse/Jaeger/Tempo via OTLP, no vendor SDK) + Prometheus `/metrics` (HTTP, ingestion stages, retrieval, embedding cache, LLM token spend, citation drops). Remaining: Grafana dashboards + alert rules, router-disagreement metric, worker-process metrics
 - ✅ Security pass ([ADR-0021](adr/0021-security-pass.md)): content-level secret scanning (not just filenames), read-only-agent injection posture locked by tests, `pip-audit` in CI (no known vulns); [SECURITY.md](../SECURITY.md) added
 - ✅ Scale validation ([docs/SCALE.md](SCALE.md), `scripts/scale_bench.py`): measured ~185 files/s structural throughput (→ 50k in ~4–5 min), incremental reprocesses **exactly** the changed files (30/3000 verified), first-index embedding cost documented + bounded by the cache/diff. Full 50k real-embedding run left as a documented projection to avoid one-off spend
-- Deployment: production compose / single-VM guide; container images in CI
+- ✅ Deployment ([docs/DEPLOYMENT.md](DEPLOYMENT.md)): `Dockerfile` (one image runs API / worker / migrate — built + run-verified), `infra/docker-compose.prod.yml` (storage + migrate + api + worker, wired by service name), GHCR image build in CI (publish on push to `main`)
 
-**Exit criteria:** webhook-driven re-index lands in minutes touching only the diff; 50k-file repo indexed within documented budget; dashboards show cost/latency/quality telemetry.
+**Exit criteria:** webhook-driven re-index lands in minutes touching only the diff ✅ ([ADR-0018](adr/0018-incremental-indexing.md)); 50k-file repo indexed within documented budget ✅ ([SCALE.md](SCALE.md)); cost/latency/quality telemetry emitted ✅ (Prometheus + OTLP, [ADR-0019](adr/0019-observability.md)) — Grafana dashboards and the private-repo install-flow UI are the remaining opt-in polish, tracked in Phase 6.
 
 ## Phase 6 — Extensions (ongoing)
 

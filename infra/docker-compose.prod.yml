@@ -1,0 +1,76 @@
+# Production single-VM stack: storage + API + worker, all wired by service name.
+# See docs/DEPLOYMENT.md. Secrets come from an .env file next to this one
+# (RA_ANTHROPIC_API_KEY, RA_VOYAGE_API_KEY, and optionally the GitHub App / webhook
+# / token-encryption keys); the service-name DSNs below override any localhost
+# values in that .env.
+name: repo-assistant-prod
+
+x-app-env: &app-env
+  RA_POSTGRES_DSN: postgresql+asyncpg://repo_assistant:repo_assistant@postgres:5432/repo_assistant
+  RA_QDRANT_URL: http://qdrant:6333
+  RA_REDIS_DSN: redis://redis:6379/0
+  RA_LOG_FORMAT: json
+  RA_ENVIRONMENT: prod
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: repo_assistant
+      POSTGRES_PASSWORD: repo_assistant
+      POSTGRES_DB: repo_assistant
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U repo_assistant -d repo_assistant"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.15.1
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+
+  migrate:
+    image: ${RA_IMAGE:-ghcr.io/adiprk08/repo_assistant:latest}
+    command: ["alembic", "upgrade", "head"]
+    env_file: [../.env]
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: ${RA_IMAGE:-ghcr.io/adiprk08/repo_assistant:latest}
+    command: ["ra", "serve", "--host", "0.0.0.0", "--port", "8000"]
+    env_file: [../.env]
+    environment: *app-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    image: ${RA_IMAGE:-ghcr.io/adiprk08/repo_assistant:latest}
+    command: ["ra", "worker"]
+    env_file: [../.env]
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  redis_data:

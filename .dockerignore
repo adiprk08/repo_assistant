@@ -1,0 +1,15 @@
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+node_modules
+web/node_modules
+web/.next
+evals/reports
+.env
+handoff.md
+*.md
+docs
