@@ -66,6 +66,11 @@ async def scan(acquisition: Acquisition) -> ScanResult:
         if filters.looks_binary(raw[:_BINARY_SNIFF_BYTES]):
             result.skipped.append(SkippedFile(path=rel_path, reason=SkipReason.BINARY))
             continue
+        # Content-level secret scan: keep a file with an inlined credential out of
+        # the index even if its name looks innocuous (docs/adr/0021).
+        if filters.contains_secret(raw.decode("utf-8", "replace")):
+            result.skipped.append(SkippedFile(path=rel_path, reason=SkipReason.SECRET))
+            continue
 
         language, category = classify(rel_path)
         result.files.append(

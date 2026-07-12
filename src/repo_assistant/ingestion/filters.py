@@ -6,6 +6,8 @@ secrets out of the index and therefore out of prompts. These predicates are kept
 free of I/O so they can be unit-tested exhaustively against path/byte fixtures.
 """
 
+import re
+
 # Max indexable file size. Larger files are almost always data/generated blobs;
 # real source files comfortably fit (see docs/ARCHITECTURE.md §4).
 MAX_FILE_BYTES = 1_000_000
@@ -92,6 +94,31 @@ _SECRET_SUFFIXES: tuple[str, ...] = (
     ".keystore",
     ".jks",
 )
+
+
+# High-confidence credential patterns: a file whose *content* matches is kept out
+# of the index entirely (docs/adr/0021). Deliberately low false-positive — provider
+# key prefixes and PEM private-key headers, not generic high-entropy strings.
+_SECRET_CONTENT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),  # AWS access key id
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36}\b"),  # GitHub PAT / OAuth / app tokens
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{60,}\b"),  # GitHub fine-grained PAT
+    re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{20,}\b"),  # Anthropic API key
+    re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"),  # Google API key
+    re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"),  # Slack token
+    re.compile(r"\bsk_live_[0-9A-Za-z]{24,}\b"),  # Stripe live secret key
+    re.compile(r"\bglpat-[0-9A-Za-z_\-]{20,}\b"),  # GitLab PAT
+)
+
+
+def contains_secret(text: str) -> bool:
+    """True if ``text`` embeds a high-confidence hardcoded credential.
+
+    Used to keep a source/config file with an inlined key (e.g. ``AKIA…`` or a PEM
+    private key) out of the index even when its *name* looks innocuous.
+    """
+    return any(pattern.search(text) for pattern in _SECRET_CONTENT_PATTERNS)
 
 
 def _basename(path: str) -> str:

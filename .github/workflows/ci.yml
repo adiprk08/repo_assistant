@@ -33,3 +33,17 @@ jobs:
 
       - name: Pytest
         run: uv run pytest
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --all-groups
+      # Fails the build on a known-vulnerable dependency (docs/adr/0021). The local
+      # package itself isn't on PyPI, so it is skipped, not failed.
+      - name: pip-audit
+        run: uv run pip-audit
