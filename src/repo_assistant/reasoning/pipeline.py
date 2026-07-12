@@ -10,7 +10,14 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from repo_assistant.core.interfaces import Embedder, LLMClient, OnText, Reranker, VectorIndex
+from repo_assistant.core.interfaces import (
+    Embedder,
+    LLMClient,
+    Message,
+    OnText,
+    Reranker,
+    VectorIndex,
+)
 from repo_assistant.reasoning.agent import run_agent
 from repo_assistant.reasoning.router import Path, RouterDecision, classify_intent
 from repo_assistant.reasoning.service import Answer, generate_answer
@@ -45,17 +52,24 @@ async def answer_routed(
     budget: int = 8,
     gather_only: bool = False,
     on_text: OnText | None = None,
+    history: list[Message] | None = None,
+    retrieval_query: str | None = None,
 ) -> RoutedAnswer:
     """Route ``question`` to the fast or agent path and answer it.
 
     ``gather_only`` returns the surfaced evidence without the final grounded
     generation — used by the cheap retrieval-only agentic eval. ``on_text``
-    streams the final answer's text deltas (both paths).
+    streams the final answer's text deltas (both paths). ``history`` (prior turns
+    + summary preface) grounds the generation conversationally; ``retrieval_query``
+    is the condensed standalone query used for routing, retrieval, and agent
+    exploration — it defaults to ``question`` for stateless (single-turn) calls.
     """
+    query = retrieval_query or question
+
     if force_path is not None:
         decision = RouterDecision(intent="other", multi_hop=force_path == "agent", path=force_path)
     else:
-        decision = await classify_intent(router_llm, question)
+        decision = await classify_intent(router_llm, query)
 
     if decision.path == "agent":
         ctx = ToolContext(
@@ -68,7 +82,14 @@ async def answer_routed(
             reranker=reranker,
         )
         result = await run_agent(
-            question, ctx=ctx, llm=llm, budget=budget, gather_only=gather_only, on_text=on_text
+            query,
+            ctx=ctx,
+            llm=llm,
+            budget=budget,
+            gather_only=gather_only,
+            on_text=on_text,
+            history=history,
+            gen_question=question,
         )
         return RoutedAnswer(
             answer=result.answer,
@@ -82,7 +103,7 @@ async def answer_routed(
     retrieved = await hybrid_retrieve(
         repo_id,
         snapshot_id,
-        question,
+        query,
         embedder=embedder,
         vector_index=vector_index,
         session_factory=session_factory,
@@ -94,7 +115,7 @@ async def answer_routed(
     answer = (
         None
         if gather_only
-        else await generate_answer(question, retrieved, llm=llm, on_text=on_text)
+        else await generate_answer(question, retrieved, llm=llm, history=history, on_text=on_text)
     )
     return RoutedAnswer(
         answer=answer,

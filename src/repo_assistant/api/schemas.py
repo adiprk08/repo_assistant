@@ -87,10 +87,48 @@ class SearchResponse(BaseModel):
     results: list[SearchHit]
 
 
+class SessionCreate(BaseModel):
+    title: str | None = Field(default=None, description="Optional human label for the session.")
+
+
+class SessionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    repo_id: uuid.UUID
+    snapshot_id: uuid.UUID
+    commit_sha: str
+    title: str | None
+    summary: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    seq: int
+    role: str
+    content: str
+    citations: list
+    usage: dict
+    created_at: datetime
+
+
+class SessionDetailOut(SessionOut):
+    messages: list[MessageOut] = []
+
+
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1)
     path: Literal["auto", "fast", "agent"] = Field(
         default="auto", description="Reasoning path: auto (router decides), fast, or agent."
+    )
+    session_id: uuid.UUID | None = Field(
+        default=None,
+        description="Bind the turn to a conversation. Uses the session's pinned "
+        "snapshot and prior turns; persists this exchange. Omit for a stateless one-off.",
     )
 
 

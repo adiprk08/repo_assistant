@@ -65,7 +65,8 @@ Two runtime processes share one library:
   - `POST /repos` — register a repo and enqueue an ingestion job (202); `GET /repos`, `GET /repos/{id}` (detail: active snapshot + latest job), `DELETE /repos/{id}` (drops rows + vector points).
   - `GET /repos/{id}/job` — latest ingestion job; `GET /repos/{id}/job/stream` — **SSE** of stage/progress until a terminal state.
   - `POST /repos/{id}/search` — hybrid retrieval over the active snapshot (ranked path/span/score/excerpt).
-  - `POST /repos/{id}/chat` — routed, grounded answer **streamed over SSE** (`token` events, then a `done` event with verified citations + routing metadata).
+  - `POST /repos/{id}/sessions`, `GET .../sessions`, `GET .../sessions/{sid}` — conversation sessions (each pinned to a snapshot) and their message history ([ADR-0015](adr/0015-conversation-memory.md)).
+  - `POST /repos/{id}/chat` — routed, grounded answer **streamed over SSE** (`token` events, then a `done` event with verified citations + routing metadata). Pass `session_id` to make the turn conversational (pinned snapshot, prior turns, persisted); omit for a stateless one-off.
   - `GET /health`. Domain errors ([core/errors](../src/repo_assistant/core/errors.py)) map to status codes centrally (NotFound→404, Ingestion→400, Validation→422, Provider→502).
 - **Worker** (arq): ingestion/indexing jobs, summary generation, incremental updates. The job row (`jobs`) is the state machine; each stage transition is persisted so the API's SSE endpoint streams progress by polling it.
 
@@ -153,7 +154,7 @@ Two tiers behind an intent router ([ADR-0006](adr/0006-reasoning-pipeline.md)). 
 - **Post-hoc verification:** every citation is resolved against the index — the span must exist and the cited content must match. Invalid citations are dropped and the claim flagged; answers with zero surviving citations for factual claims are regenerated once, then surfaced with an explicit low-confidence warning.
 - The system prompt instructs refusal over invention when retrieval comes back empty ("I could not find this in the repository" is a valid answer and is eval-rewarded).
 
-**Conversation memory** — messages persisted per session (bound to a repo snapshot); short window kept verbatim, older turns rolled into a summary; retrieved-chunk IDs tracked per session so follow-ups prefer cheap re-expansion over fresh retrieval.
+**Conversation memory** ([ADR-0015](adr/0015-conversation-memory.md), implemented Phase 4) — messages persisted per session, each session **pinned to a snapshot at creation** so the whole conversation answers against one commit. The last `history_window_messages` turns are kept verbatim; older turns roll **incrementally** into a per-session summary (a `summary_covered_messages` counter bounds the work to one summarizer call per turn). Follow-ups are **condensed** into a standalone query (haiku) for routing/retrieval/agent-exploration, while generation answers the raw question with history for context. Persisting per-message verified citations is the foundation for the deferred "track retrieved-chunk IDs for cheap re-expansion" optimization.
 
 **Prompt caching** — stable prefix order: system prompt → repo map → conversation; `cache_control` breakpoints after the repo map and after the last appended turn. The repo map is byte-stable between index updates specifically so the cache holds.
 

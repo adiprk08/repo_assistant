@@ -10,7 +10,17 @@ import uuid
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from repo_assistant.storage.models import Chunk, Edge, File, Job, Repo, Snapshot, Symbol
+from repo_assistant.storage.models import (
+    ChatMessage,
+    ChatSession,
+    Chunk,
+    Edge,
+    File,
+    Job,
+    Repo,
+    Snapshot,
+    Symbol,
+)
 
 
 async def get_repo_by_url(session: AsyncSession, url: str) -> Repo | None:
@@ -152,6 +162,15 @@ async def delete_repo_rows(session: AsyncSession, repo_id: uuid.UUID) -> bool:
     snapshot_ids = await snapshot_ids_for_repo(session, repo_id)
     # Break the repos -> snapshots FK cycle before deleting snapshots.
     await session.execute(update(Repo).where(Repo.id == repo_id).values(active_snapshot_id=None))
+    # Chat messages -> sessions -> (repo, snapshot): delete children first.
+    session_ids = (
+        (await session.execute(select(ChatSession.id).where(ChatSession.repo_id == repo_id)))
+        .scalars()
+        .all()
+    )
+    if session_ids:
+        await session.execute(delete(ChatMessage).where(ChatMessage.session_id.in_(session_ids)))
+    await session.execute(delete(ChatSession).where(ChatSession.repo_id == repo_id))
     for model in (Chunk, Symbol, Edge, File):
         if snapshot_ids:
             await session.execute(delete(model).where(model.snapshot_id.in_(snapshot_ids)))
@@ -159,6 +178,76 @@ async def delete_repo_rows(session: AsyncSession, repo_id: uuid.UUID) -> bool:
     await session.execute(delete(Snapshot).where(Snapshot.repo_id == repo_id))
     await session.execute(delete(Repo).where(Repo.id == repo_id))
     return True
+
+
+async def create_session(
+    session: AsyncSession,
+    *,
+    repo_id: uuid.UUID,
+    snapshot_id: uuid.UUID,
+    commit_sha: str,
+    title: str | None = None,
+) -> ChatSession:
+    chat = ChatSession(repo_id=repo_id, snapshot_id=snapshot_id, commit_sha=commit_sha, title=title)
+    session.add(chat)
+    await session.flush()
+    return chat
+
+
+async def get_session(session: AsyncSession, session_id: uuid.UUID) -> ChatSession | None:
+    return await session.get(ChatSession, session_id)
+
+
+async def list_sessions_for_repo(session: AsyncSession, repo_id: uuid.UUID) -> list[ChatSession]:
+    result = await session.execute(
+        select(ChatSession)
+        .where(ChatSession.repo_id == repo_id)
+        .order_by(ChatSession.created_at.desc())
+    )
+    return list(result.scalars())
+
+
+async def append_message(
+    session: AsyncSession,
+    session_id: uuid.UUID,
+    *,
+    role: str,
+    content: str,
+    citations: list | None = None,
+    usage: dict | None = None,
+) -> ChatMessage:
+    message = ChatMessage(
+        session_id=session_id,
+        role=role,
+        content=content,
+        citations=citations or [],
+        usage=usage or {},
+    )
+    session.add(message)
+    # Touch the parent session so ``updated_at`` reflects the latest activity.
+    await session.execute(
+        update(ChatSession).where(ChatSession.id == session_id).values(updated_at=_now())
+    )
+    await session.flush()
+    return message
+
+
+async def get_messages(session: AsyncSession, session_id: uuid.UUID) -> list[ChatMessage]:
+    """All messages for a session, oldest first."""
+    result = await session.execute(
+        select(ChatMessage).where(ChatMessage.session_id == session_id).order_by(ChatMessage.seq)
+    )
+    return list(result.scalars())
+
+
+async def update_session_summary(
+    session: AsyncSession, session_id: uuid.UUID, summary: str, covered_messages: int
+) -> None:
+    await session.execute(
+        update(ChatSession)
+        .where(ChatSession.id == session_id)
+        .values(summary=summary, summary_covered_messages=covered_messages)
+    )
 
 
 def _now():

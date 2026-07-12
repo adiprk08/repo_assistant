@@ -30,6 +30,12 @@ class Settings(BaseSettings):
 
     agent_tool_call_budget: int = 8
 
+    # Conversation memory (docs/adr/0015)
+    # Keep this many recent turns verbatim; older turns roll into the session summary.
+    history_window_messages: int = 6
+    # Condense a follow-up into a standalone query once a session has prior turns.
+    condense_followups: bool = True
+
     # API service
     job_stream_poll_seconds: float = 1.0
 

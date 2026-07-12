@@ -68,9 +68,9 @@
 
 **Goal:** a usable product, not a CLI demo.
 
-- FastAPI service: repos CRUD, ingestion job status (SSE progress), chat completions (SSE streaming), search endpoint
-- arq workers + staged, checkpointed ingestion jobs; concurrent multi-repo ingestion
-- Conversation memory: sessions, rolling summaries, snapshot binding
+- ✅ FastAPI service: repos CRUD, ingestion job status (SSE progress), chat completions (SSE streaming), search endpoint — shipped ([ADR-0014](adr/0014-api-service-and-streaming.md))
+- ✅ arq workers + staged ingestion jobs (job-row state machine, SSE-observable) — shipped; checkpointed auto-resume + concurrent-multi-repo validation carried to Phase 5 hardening
+- ✅ Conversation memory: snapshot-pinned sessions, incremental rolling summaries, follow-up condensation — shipped ([ADR-0015](adr/0015-conversation-memory.md)); a multi-turn eval set to measure condensation is owed
 - API-key auth + rate limiting
 - Minimal Next.js chat UI: repo picker, indexing progress, streaming chat with clickable citations (file viewer)
 

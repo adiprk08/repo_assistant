@@ -18,3 +18,4 @@ Format: Status / Context / Decision / Alternatives considered / Consequences. AD
 | [0012](0012-agentic-loop-opt-in.md) | Agentic reasoning path opt-in (measured parity, single-pass stays default) | Accepted |
 | [0013](0013-contextual-descriptions-opt-in.md) | Contextual chunk descriptions opt-in (measured no retrieval lift); summary hierarchy deferred | Accepted |
 | [0014](0014-api-service-and-streaming.md) | API service surface; SSE progress via DB polling + chat token streaming via `on_text` | Accepted |
+| [0015](0015-conversation-memory.md) | Conversation memory: snapshot-pinned sessions, incremental rolling summary, follow-up condensation | Accepted |

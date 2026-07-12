@@ -63,13 +63,17 @@ async def run_agent(
     budget: int = 8,
     gather_only: bool = False,
     on_text: OnText | None = None,
+    history: list[Message] | None = None,
+    gen_question: str | None = None,
 ) -> AgentAnswer:
     """Explore with tools up to ``budget`` calls, then answer from what was gathered.
 
     ``gather_only`` skips the final grounded generation — used by the cheap
     retrieval-only agentic eval, which scores the gathered evidence itself.
     ``on_text`` streams only the final answer generation; the exploration loop's
-    internal turns are never surfaced.
+    internal turns are never surfaced. ``question`` drives exploration; the final
+    answer is generated for ``gen_question`` (the user's raw phrasing, when it
+    differs from the condensed exploration query) with ``history`` for context.
     """
     messages: list[Message] = [Message(role="user", content=question)]
     system = _agent_system(budget)
@@ -101,7 +105,11 @@ async def run_agent(
     chunks = ctx.grounding_chunks()
 
     answer = (
-        None if gather_only else await generate_answer(question, chunks, llm=llm, on_text=on_text)
+        None
+        if gather_only
+        else await generate_answer(
+            gen_question or question, chunks, llm=llm, history=history, on_text=on_text
+        )
     )
     logger.info(
         "agent finished",

@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Float,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -159,6 +169,51 @@ class Job(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class ChatSession(Base):
+    """A multi-turn conversation, bound to one repo snapshot at creation.
+
+    Pinning ``snapshot_id``/``commit_sha`` keeps the whole conversation answered
+    against a single consistent commit even if the repo re-indexes mid-session
+    (docs/adr/0006, docs/adr/0015). ``summary`` holds the rolling condensation of
+    turns that have aged out of the verbatim window."""
+
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    repo_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("repos.id"))
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("snapshots.id"))
+    commit_sha: Mapped[str] = mapped_column(String)
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # How many of the oldest messages the summary already folds in — lets the
+    # rolling summary update incrementally instead of re-reading the whole history.
+    summary_covered_messages: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (Index("ix_chat_sessions_repo", "repo_id"),)
+
+
+class ChatMessage(Base):
+    """One turn within a session. Assistant turns carry the verified citations
+    (JSONB) and token usage; user turns carry the raw question."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_sessions.id"))
+    # Monotonic insertion order. created_at can't order turns within a session:
+    # Postgres now() is transaction-constant, so both turns of one exchange share it.
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(), nullable=False)
+    role: Mapped[str] = mapped_column(String)  # "user" | "assistant"
+    content: Mapped[str] = mapped_column(Text)
+    citations: Mapped[list] = mapped_column(JSONB, default=list)
+    usage: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+    __table_args__ = (Index("ix_chat_messages_session", "session_id", "seq"),)
 
 
 class EvalRun(Base):

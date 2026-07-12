@@ -18,6 +18,8 @@ def test_all_models_are_registered_on_the_shared_metadata() -> None:
         "eval_runs",
         "eval_results",
         "edges",
+        "chat_sessions",
+        "chat_messages",
     }
 
 

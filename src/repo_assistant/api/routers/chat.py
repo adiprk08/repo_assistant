@@ -4,6 +4,10 @@ The reasoning pipeline exposes an ``on_text`` callback; here it feeds an
 ``asyncio.Queue`` that the SSE generator drains, so answer tokens reach the client
 as they are produced. The final ``done`` event carries the routing metadata and
 the verified citations (citations are known only once generation completes).
+
+When ``session_id`` is set the turn is conversational: answered against the
+session's *pinned* snapshot (not the repo's current active one), grounded in the
+prior turns, and persisted (docs/adr/0015). Otherwise it is a stateless one-off.
 """
 
 import asyncio
@@ -18,9 +22,12 @@ from repo_assistant.api.deps import RuntimeDep
 from repo_assistant.api.schemas import ChatRequest, CitationOut
 from repo_assistant.api.sse import SSE_HEADERS, SSE_MEDIA_TYPE, sse_event
 from repo_assistant.cli.runtime import resolve_indexed_repo
-from repo_assistant.core.errors import RepoAssistantError
+from repo_assistant.core.errors import NotFoundError, RepoAssistantError
+from repo_assistant.core.interfaces import Message
 from repo_assistant.reasoning import RoutedAnswer, answer_routed
+from repo_assistant.reasoning.conversation import prepare_turn, record_turn
 from repo_assistant.reasoning.router import Path
+from repo_assistant.storage import repositories as repo
 
 router = APIRouter(prefix="/repos", tags=["chat"])
 
@@ -29,10 +36,33 @@ router = APIRouter(prefix="/repos", tags=["chat"])
 async def chat_repo(
     repo_id: uuid.UUID, body: ChatRequest, runtime: RuntimeDep
 ) -> StreamingResponse:
-    # Resolve before streaming so a missing/unindexed repo is a real 404, not an
-    # SSE error event after headers are already sent.
-    resolved = await resolve_indexed_repo(runtime, str(repo_id))
     force_path: Path | None = None if body.path == "auto" else cast(Path, body.path)
+
+    # Resolve the target snapshot before streaming so a missing/unindexed repo or
+    # session is a real HTTP error, not an SSE event after headers are sent.
+    history: list[Message] | None = None
+    retrieval_query: str | None = None
+    if body.session_id is not None:
+        async with runtime.session_factory() as session:
+            chat = await repo.get_session(session, body.session_id)
+            if chat is None or chat.repo_id != repo_id:
+                raise NotFoundError(f"No session {body.session_id} for repository {repo_id}")
+            repo_id_str = str(chat.repo_id)
+            snapshot_id_str = str(chat.snapshot_id)
+            commit = chat.commit_sha
+        prepared = await prepare_turn(
+            runtime.session_factory,
+            body.session_id,
+            body.question,
+            router_llm=runtime.llm(model=runtime.settings.router_model),
+            settings=runtime.settings,
+        )
+        history, retrieval_query = prepared.history, prepared.retrieval_query
+    else:
+        resolved = await resolve_indexed_repo(runtime, str(repo_id))
+        repo_id_str = str(resolved.repo_id)
+        snapshot_id_str = str(resolved.snapshot_id)
+        commit = resolved.commit_sha
 
     embedder = runtime.embedder()
     llm = runtime.llm()
@@ -47,9 +77,9 @@ async def chat_repo(
         async def run() -> None:
             try:
                 routed = await answer_routed(
-                    repo_id=str(resolved.repo_id),
-                    snapshot_id=str(resolved.snapshot_id),
-                    commit=resolved.commit_sha,
+                    repo_id=repo_id_str,
+                    snapshot_id=snapshot_id_str,
+                    commit=commit,
                     question=body.question,
                     embedder=embedder,
                     vector_index=runtime.vector_index,
@@ -59,7 +89,18 @@ async def chat_repo(
                     force_path=force_path,
                     budget=runtime.settings.agent_tool_call_budget,
                     on_text=on_text,
+                    history=history,
+                    retrieval_query=retrieval_query,
                 )
+                if body.session_id is not None and routed.answer is not None:
+                    await record_turn(
+                        runtime.session_factory,
+                        body.session_id,
+                        question=body.question,
+                        answer=routed.answer,
+                        summarizer_llm=router_llm,
+                        settings=runtime.settings,
+                    )
                 await queue.put(("result", routed))
             except RepoAssistantError as exc:
                 await queue.put(("error", exc))

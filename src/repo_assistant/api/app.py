@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from repo_assistant.api.errors import register_error_handlers
-from repo_assistant.api.routers import chat, repos, search
+from repo_assistant.api.routers import chat, repos, search, sessions
 from repo_assistant.cli.runtime import Runtime, build_runtime
 from repo_assistant.core.config import Settings, get_settings
 from repo_assistant.core.logging import configure_logging
@@ -59,6 +59,7 @@ def create_app(
         return {"status": "ok"}
 
     app.include_router(repos.router)
+    app.include_router(sessions.router)
     app.include_router(search.router)
     app.include_router(chat.router)
     return app

@@ -190,6 +190,92 @@ async def test_search_on_unindexed_repo_is_404(
     assert resp.status_code == 404
 
 
+async def _register_and_index(
+    c: httpx.AsyncClient, runtime: _FakeRuntime, monkeypatch, local_repo
+) -> str:
+    """Register + drive ingestion; return the ready repo id."""
+    resp = await c.post("/repos", json={"url": local_repo.url})
+    body = resp.json()
+    repo_id = body["repo"]["id"]
+    await _drive_worker(runtime, monkeypatch, local_repo, uuid.UUID(body["job"]["id"]))
+    return repo_id
+
+
+async def test_session_multi_turn_persists_and_pins_snapshot(
+    client: tuple[httpx.AsyncClient, _FakeQueue],
+    runtime: _FakeRuntime,
+    local_repo,
+    monkeypatch,
+) -> None:
+    from repo_assistant.storage import repositories as repo
+
+    # Small window so the rolling summary actually fires within two turns.
+    monkeypatch.setattr(runtime.settings, "history_window_messages", 2)
+    c, _ = client
+    repo_id = await _register_and_index(c, runtime, monkeypatch, local_repo)
+
+    # Create a session; it pins the repo's active snapshot + commit.
+    created = await c.post(f"/repos/{repo_id}/sessions", json={"title": "my session"})
+    assert created.status_code == 201
+    session = created.json()
+    session_id = session["id"]
+    assert session["commit_sha"] == local_repo.commit_sha
+    assert session["title"] == "my session"
+
+    # Two conversational turns bound to the session.
+    for question in ("What does SessionManager do?", "and how does refresh work?"):
+        chat = await c.post(
+            f"/repos/{repo_id}/chat",
+            json={"question": question, "path": "fast", "session_id": session_id},
+        )
+        assert chat.status_code == 200
+        assert "event: done" in chat.text
+
+    # History persisted: user/assistant turns in order, raw questions preserved.
+    detail = (await c.get(f"/repos/{repo_id}/sessions/{session_id}")).json()
+    msgs = detail["messages"]
+    assert [m["role"] for m in msgs] == ["user", "assistant", "user", "assistant"]
+    assert msgs[0]["content"] == "What does SessionManager do?"
+    assert msgs[2]["content"] == "and how does refresh work?"
+
+    # The older turn aged out of the window and rolled into the summary.
+    async with runtime.session_factory() as db:
+        row = await repo.get_session(db, uuid.UUID(session_id))
+        assert row is not None
+        assert row.summary is not None
+        assert row.summary_covered_messages == 2
+
+    # Session shows up in the list, and deleting the repo cascades it away.
+    listed = await c.get(f"/repos/{repo_id}/sessions")
+    assert any(s["id"] == session_id for s in listed.json())
+    assert (await c.delete(f"/repos/{repo_id}")).status_code == 204
+    assert (await c.get(f"/repos/{repo_id}/sessions/{session_id}")).status_code == 404
+
+
+async def test_create_session_on_unindexed_repo_is_404(
+    client: tuple[httpx.AsyncClient, _FakeQueue],
+) -> None:
+    c, _ = client
+    resp = await c.post(f"/repos/{uuid.uuid4()}/sessions", json={})
+    assert resp.status_code == 404
+
+
+async def test_chat_with_unknown_session_is_404(
+    client: tuple[httpx.AsyncClient, _FakeQueue],
+    runtime: _FakeRuntime,
+    local_repo,
+    monkeypatch,
+) -> None:
+    c, _ = client
+    repo_id = await _register_and_index(c, runtime, monkeypatch, local_repo)
+    resp = await c.post(
+        f"/repos/{repo_id}/chat",
+        json={"question": "hi", "path": "fast", "session_id": str(uuid.uuid4())},
+    )
+    assert resp.status_code == 404
+    await c.delete(f"/repos/{repo_id}")
+
+
 async def test_worker_marks_job_failed_on_pipeline_error(
     runtime: _FakeRuntime, local_repo, monkeypatch
 ) -> None:
