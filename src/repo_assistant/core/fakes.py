@@ -133,6 +133,26 @@ class FakeVectorIndex(VectorIndex):
         for point_id in ids:
             self._points.get(repo_id, {}).pop(point_id, None)
 
+    async def copy_points(
+        self,
+        *,
+        repo_id: str,
+        pairs: list[tuple[str, str]],
+        payload_overrides: dict[str, Any] | None = None,
+    ) -> None:
+        points = self._points.setdefault(repo_id, {})
+        overrides = payload_overrides or {}
+        for old_id, new_id in pairs:
+            src = points.get(old_id)
+            if src is None:
+                continue
+            points[new_id] = VectorPoint(
+                id=new_id,
+                dense_vector=list(src.dense_vector),
+                sparse_vector=dict(src.sparse_vector) if src.sparse_vector else None,
+                payload={**src.payload, **overrides},
+            )
+
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b, strict=True))

@@ -35,9 +35,13 @@ class _FakeQueue:
 
     def __init__(self) -> None:
         self.enqueued: list[uuid.UUID] = []
+        self.updated: list[uuid.UUID] = []
 
     async def enqueue(self, job_id: uuid.UUID) -> None:
         self.enqueued.append(job_id)
+
+    async def enqueue_update(self, job_id: uuid.UUID) -> None:
+        self.updated.append(job_id)
 
     async def aclose(self) -> None:
         return None
@@ -388,6 +392,78 @@ async def test_revoked_key_returns_401(
         assert resp.status_code == 401
     finally:
         await _drop_key(runtime, key_id)
+
+
+def _sign(secret: str, body: bytes) -> str:
+    import hashlib
+    import hmac
+
+    return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+
+async def test_webhook_rejects_bad_signature(
+    unauth_client: httpx.AsyncClient, runtime: _FakeRuntime, monkeypatch
+) -> None:
+    monkeypatch.setattr(runtime.settings, "github_webhook_secret", "shh")
+    resp = await unauth_client.post(
+        "/webhooks/github",
+        content=b"{}",
+        headers={"X-GitHub-Event": "push", "X-Hub-Signature-256": "sha256=nope"},
+    )
+    assert resp.status_code == 401
+
+
+async def test_webhook_push_enqueues_update(runtime: _FakeRuntime, local_repo, monkeypatch) -> None:
+    import json
+
+    monkeypatch.setattr(runtime.settings, "github_webhook_secret", "shh")
+    # Register the repo the push targets.
+    async with runtime.session_factory() as session:
+        repo_row = await repo.create_or_get_repo(session, local_repo.url, "main")
+        await session.commit()
+        repo_id = repo_row.id
+
+    queue = _FakeQueue()
+    app = _build_app(runtime, queue, NoopRateLimiter())
+    body = json.dumps(
+        {"ref": "refs/heads/main", "repository": {"clone_url": local_repo.url}}
+    ).encode()
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.post(
+                "/webhooks/github",
+                content=body,
+                headers={
+                    "X-GitHub-Event": "push",
+                    "X-Hub-Signature-256": _sign("shh", body),
+                },
+            )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "queued"
+        assert len(queue.updated) == 1
+    finally:
+        async with runtime.session_factory() as session:
+            await repo.delete_repo_rows(session, repo_id)
+            await session.commit()
+
+
+async def test_webhook_ignores_unregistered_repo(
+    unauth_client: httpx.AsyncClient, runtime: _FakeRuntime, monkeypatch
+) -> None:
+    import json
+
+    monkeypatch.setattr(runtime.settings, "github_webhook_secret", "shh")
+    body = json.dumps(
+        {"ref": "refs/heads/main", "repository": {"clone_url": "https://github.com/nobody/nope"}}
+    ).encode()
+    resp = await unauth_client.post(
+        "/webhooks/github",
+        content=body,
+        headers={"X-GitHub-Event": "push", "X-Hub-Signature-256": _sign("shh", body)},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ignored"
 
 
 async def test_rate_limit_returns_429(runtime: _FakeRuntime) -> None:

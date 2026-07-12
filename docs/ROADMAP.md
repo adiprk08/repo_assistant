@@ -1,6 +1,6 @@
 # Roadmap
 
-> Status: **Phase 5 next** (updated 2026-07-12) — Phases 0–4 complete. Estimates assume focused part-time development with AI assistance; phases are sequential but each ships something usable.
+> Status: **Phase 5 in progress** (updated 2026-07-12) — Phases 0–4 complete; incremental indexing + webhooks landed. Estimates assume focused part-time development with AI assistance; phases are sequential but each ships something usable.
 
 ## Guiding principles
 
@@ -80,9 +80,9 @@
 
 ## Phase 5 — Production hardening (~2–3 weeks)
 
-**Goal:** run it for real, keep it fresh, keep it safe.
+**Goal:** run it for real, keep it fresh, keep it safe. **In progress.**
 
-- Incremental indexing: diff-driven updates, summary staleness budgets, manual + polling triggers; GitHub App webhooks
+- 🟡 Incremental indexing — **core shipped** ([ADR-0018](adr/0018-incremental-indexing.md)): content-hash diff, copy-forward unchanged (rows + Qdrant points), atomic new snapshot; `ra update` + enqueued `update` job + **HMAC-verified GitHub push webhook** (`POST /webhooks/github`). Remaining: summary staleness budgets, polling trigger, snapshot GC, 50k-file scale validation
 - Private repositories: GitHub App installation flow, encrypted tokens
 - Observability: OTel traces, Langfuse LLM telemetry, Prometheus metrics + dashboards
 - Security pass: prompt-injection red-team of the agent loop, secret-scanning verification, dependency audit

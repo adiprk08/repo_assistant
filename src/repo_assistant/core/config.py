@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     # Browser UI origins allowed by CORS (comma-separated in the env var).
     cors_allow_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
+    # GitHub webhook HMAC secret (docs/adr/0018). Unset -> the webhook rejects all.
+    github_webhook_secret: str | None = None
+
     @field_validator("cors_allow_origins", mode="before")
     @classmethod
     def _split_csv(cls, value: object) -> object:

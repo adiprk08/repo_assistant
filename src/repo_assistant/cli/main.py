@@ -34,6 +34,16 @@ def index(
 
 
 @app.command()
+def update(
+    repo: str = typer.Argument(..., help="Repository URL or id of an already-indexed repo."),
+    ref: str | None = typer.Option(None, "--ref", help="Branch, tag, or commit to update to."),
+    enrich: bool = typer.Option(False, "--enrich", help="Enrich reprocessed chunks (Haiku)."),
+) -> None:
+    """Incrementally re-index a repository, touching only the changed files (ADR-0018)."""
+    asyncio.run(_update(repo, ref, enrich))
+
+
+@app.command()
 def chat(
     repo: str = typer.Argument(..., help="Repository URL or id of an already-indexed repo."),
     path: str = typer.Option(
@@ -243,6 +253,41 @@ async def _index(github_url: str, ref: str | None, enrich: bool) -> None:
     typer.echo(f"  chunks:   {result.n_chunks}")
     typer.echo(f"  symbols:  {result.n_symbols}")
     typer.echo(f"\nChat with it:  ra chat {result.repo_id}")
+
+
+async def _update(identifier: str, ref: str | None, enrich: bool) -> None:
+    from repo_assistant.cli.runtime import build_runtime, resolve_indexed_repo
+    from repo_assistant.indexing.incremental import incremental_index
+
+    runtime = build_runtime()
+    enricher = runtime.llm(model=runtime.settings.enrichment_model) if enrich else None
+    try:
+        try:
+            resolved = await resolve_indexed_repo(runtime, identifier)
+        except NotFoundError as exc:
+            raise typer.Exit(code=_fail(str(exc))) from exc
+        typer.echo(f"Updating {resolved.url} ...")
+        result = await incremental_index(
+            resolved.url,
+            embedder=runtime.embedder(),
+            vector_index=runtime.vector_index,
+            session_factory=runtime.session_factory,
+            ref=ref,
+            enricher=enricher,
+        )
+    except ProviderError as exc:
+        raise typer.Exit(code=_fail(str(exc))) from exc
+    finally:
+        await runtime.aclose()
+
+    if result.no_op:
+        typer.secho("\nAlready up to date (no new commit).", fg=typer.colors.GREEN)
+        return
+    typer.secho("\nUpdated successfully.", fg=typer.colors.GREEN, bold=True)
+    typer.echo(f"  commit:      {result.commit_sha[:12]}")
+    typer.echo(f"  reprocessed: {result.n_reprocessed}")
+    typer.echo(f"  unchanged:   {result.n_unchanged}")
+    typer.echo(f"  deleted:     {result.n_deleted}")
 
 
 async def _chat(identifier: str, path: str) -> None:

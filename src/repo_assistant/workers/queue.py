@@ -12,6 +12,7 @@ from arq.connections import ArqRedis, RedisSettings
 from repo_assistant.core.errors import ProviderError
 
 INGESTION_TASK = "run_ingestion"
+UPDATE_TASK = "run_update"
 
 
 class IngestionQueue:
@@ -19,14 +20,21 @@ class IngestionQueue:
         self._redis_settings = RedisSettings.from_dsn(redis_dsn)
         self._pool: ArqRedis | None = None
 
-    async def enqueue(self, job_id: uuid.UUID) -> None:
-        """Enqueue the arq task for ``job_id`` (the Postgres jobs row is the source of truth)."""
+    async def _enqueue(self, task: str, job_id: uuid.UUID) -> None:
         try:
             if self._pool is None:
                 self._pool = await create_pool(self._redis_settings)
-            await self._pool.enqueue_job(INGESTION_TASK, str(job_id))
+            await self._pool.enqueue_job(task, str(job_id))
         except OSError as exc:
             raise ProviderError(f"Job queue (Redis) unavailable: {exc}") from exc
+
+    async def enqueue(self, job_id: uuid.UUID) -> None:
+        """Enqueue a full ingestion (the Postgres jobs row is the source of truth)."""
+        await self._enqueue(INGESTION_TASK, job_id)
+
+    async def enqueue_update(self, job_id: uuid.UUID) -> None:
+        """Enqueue an incremental re-index (docs/adr/0018)."""
+        await self._enqueue(UPDATE_TASK, job_id)
 
     async def aclose(self) -> None:
         if self._pool is not None:

@@ -6,7 +6,7 @@ sharing one collection and partitioned by an indexed ``repo_id`` payload field
 hybrid fusion arrive in Phase 2.
 """
 
-from typing import Any
+from typing import Any, cast
 
 from qdrant_client import AsyncQdrantClient, models
 
@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 DENSE_VECTOR = "dense"
 SPARSE_VECTOR = "sparse"
 _TENANT_KEY = "repo_id"
+_COPY_BATCH = 256
 
 
 def _sparse(vector: dict[int, float]) -> models.SparseVector:
@@ -152,6 +153,43 @@ class QdrantVectorIndex(VectorIndex):
             collection_name=self._collection,
             points_selector=models.PointIdsList(points=list(ids)),
         )
+
+    async def copy_points(
+        self,
+        *,
+        repo_id: str,
+        pairs: list[tuple[str, str]],
+        payload_overrides: dict[str, Any] | None = None,
+    ) -> None:
+        """Retrieve source points with their vectors and re-upsert under new ids.
+
+        This is a Qdrant-side transfer — no embeddings are recomputed — so an
+        unchanged file's chunks move into the new snapshot for free (docs/adr/0018).
+        """
+        if not pairs:
+            return
+        overrides = payload_overrides or {}
+        new_by_old = dict(pairs)
+        for batch_start in range(0, len(pairs), _COPY_BATCH):
+            batch = pairs[batch_start : batch_start + _COPY_BATCH]
+            records = await self._client.retrieve(
+                collection_name=self._collection,
+                ids=[old for old, _ in batch],
+                with_payload=True,
+                with_vectors=True,
+            )
+            new_points = [
+                models.PointStruct(
+                    id=new_by_old[str(record.id)],
+                    # named-vector dict round-trips as-is; typed Any like upsert().
+                    vector=cast(Any, record.vector),
+                    payload={**(record.payload or {}), **overrides},
+                )
+                for record in records
+                if record.vector is not None
+            ]
+            if new_points:
+                await self._client.upsert(collection_name=self._collection, points=new_points)
 
     async def delete_repo(self, repo_id: str) -> None:
         """Remove every point for a tenant (used when re-indexing replaces a snapshot)."""

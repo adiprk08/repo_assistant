@@ -219,3 +219,18 @@ class VectorIndex(ABC):
 
     @abstractmethod
     async def delete(self, *, repo_id: str, ids: list[str]) -> None: ...
+
+    async def copy_points(
+        self,
+        *,
+        repo_id: str,
+        pairs: list[tuple[str, str]],
+        payload_overrides: dict[str, Any] | None = None,
+    ) -> None:
+        """Copy existing points (with vectors) to new ids, patching payload.
+
+        Used by incremental indexing to carry an unchanged file's chunks forward
+        into a new snapshot without re-embedding (docs/adr/0018). Default: not
+        supported — indexes used for incremental updates must override.
+        """
+        raise NotImplementedError("this vector index does not support copy_points")

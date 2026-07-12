@@ -67,7 +67,8 @@ Two runtime processes share one library:
   - `POST /repos/{id}/search` — hybrid retrieval over the active snapshot (ranked path/span/score/excerpt).
   - `POST /repos/{id}/sessions`, `GET .../sessions`, `GET .../sessions/{sid}` — conversation sessions (each pinned to a snapshot) and their message history ([ADR-0015](adr/0015-conversation-memory.md)).
   - `POST /repos/{id}/chat` — routed, grounded answer **streamed over SSE** (`token` events, then a `done` event with verified citations + routing metadata). Pass `session_id` to make the turn conversational (pinned snapshot, prior turns, persisted); omit for a stateless one-off.
-  - `GET /health` (unauthenticated). Every other route requires `Authorization: Bearer <api-key>` and is per-key rate-limited ([ADR-0016](adr/0016-api-auth-and-rate-limiting.md)). Domain errors ([core/errors](../src/repo_assistant/core/errors.py)) map to status codes centrally (NotFound→404, Ingestion→400, Validation→422, Auth→401, RateLimit→429, Provider→502).
+  - `POST /webhooks/github` — GitHub push webhook; **HMAC-signature-gated** (not API-key auth), enqueues an incremental re-index ([ADR-0018](adr/0018-incremental-indexing.md)).
+  - `GET /health` (unauthenticated). Every other route (except the signature-gated webhook) requires `Authorization: Bearer <api-key>` and is per-key rate-limited ([ADR-0016](adr/0016-api-auth-and-rate-limiting.md)). Domain errors ([core/errors](../src/repo_assistant/core/errors.py)) map to status codes centrally (NotFound→404, Ingestion→400, Validation→422, Auth→401, RateLimit→429, Provider→502).
 - **Worker** (arq): ingestion/indexing jobs, summary generation, incremental updates. The job row (`jobs`) is the state machine; each stage transition is persisted so the API's SSE endpoint streams progress by polling it.
 
 Everything of substance lives in the `repo_assistant` Python package; API, worker, and CLI are thin shells (`create_app` composes one `Runtime` + one `IngestionQueue` for its lifetime; routers wrap a single library call each). This keeps every pipeline runnable and testable without infrastructure ([ADR-0001](adr/0001-language-and-stack.md)).
@@ -182,9 +183,9 @@ Two tiers behind an intent router ([ADR-0006](adr/0006-reasoning-pipeline.md)). 
 ## 8. Incremental indexing and version awareness
 
 - Every indexed artifact is stamped with its commit SHA; answers state the commit they describe. Chat sessions bind to a snapshot at start.
-- Update flow: fetch → diff indexed..new → plan work items (deleted → delete points/rows by path; modified/added → re-parse/re-chunk/re-embed those files only; renames from git similarity detection) → apply → refresh summaries whose `source_hash` changed → regenerate directory/repo summaries only when > 20 % of children changed (staleness budget) → atomically advance the active snapshot.
-- v1 keeps one active snapshot per repo; the schema (snapshot table + commit-stamped payloads) makes multi-ref/time-travel additive.
-- Triggers: manual re-index and polling in Phase 4; GitHub App webhooks in Phase 5.
+- **Incremental update** ([ADR-0018](adr/0018-incremental-indexing.md), implemented Phase 5): clone the new commit → **diff by content hash** against the previous snapshot's `files` rows (unchanged / changed+added / deleted) → re-scan/parse/chunk/embed **only** changed+added files → **copy unchanged** files' rows and Qdrant points forward into a new snapshot (`copy_points` re-upserts vectors under new ids with the commit patched — no re-embedding) → atomically promote the new snapshot. Content-hash diffing was chosen over parsing `git diff` (simpler, reflects the actual index filter, treats renames as delete+add whose re-embed is a cache hit). Edges for unchanged files are copied, changed files' edges recomputed. A no-op fast path skips work when the commit is unchanged. Summary refresh (staleness budget) is a later enrichment task.
+- v1 keeps one active snapshot per repo; old snapshots remain as harmless orphans (GC is a later task). The schema makes multi-ref/time-travel additive.
+- Triggers: manual (`ra update`, or an enqueued `update` job) and **GitHub push webhooks** — `POST /webhooks/github`, HMAC-verified (`X-Hub-Signature-256`), enqueues an incremental update for a registered repo's default-ref push. Polling is a later trigger.
 
 ## 9. Scalability
 

@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from repo_assistant.api.auth import secured
 from repo_assistant.api.errors import register_error_handlers
 from repo_assistant.api.ratelimit import NoopRateLimiter, RateLimiter, RedisRateLimiter
-from repo_assistant.api.routers import chat, repos, search, sessions
+from repo_assistant.api.routers import chat, repos, search, sessions, webhooks
 from repo_assistant.cli.runtime import Runtime, build_runtime
 from repo_assistant.core.config import Settings, get_settings
 from repo_assistant.core.logging import configure_logging
@@ -93,4 +93,6 @@ def create_app(
     app.include_router(sessions.router, dependencies=protected)
     app.include_router(search.router, dependencies=protected)
     app.include_router(chat.router, dependencies=protected)
+    # Webhooks authenticate by HMAC signature, not API key — no `secured` dependency.
+    app.include_router(webhooks.router)
     return app

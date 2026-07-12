@@ -151,6 +151,34 @@ async def chunk_ids_for_snapshots(
     return list(result.scalars())
 
 
+async def file_hashes_for_snapshot(session: AsyncSession, snapshot_id: uuid.UUID) -> dict[str, str]:
+    """Map path -> content_hash for a snapshot's indexed files (the incremental diff key)."""
+    result = await session.execute(
+        select(File.path, File.content_hash).where(File.snapshot_id == snapshot_id)
+    )
+    return {path: h for path, h in result.all()}
+
+
+async def files_for_snapshot(session: AsyncSession, snapshot_id: uuid.UUID) -> list[File]:
+    result = await session.execute(select(File).where(File.snapshot_id == snapshot_id))
+    return list(result.scalars())
+
+
+async def chunks_for_snapshot(session: AsyncSession, snapshot_id: uuid.UUID) -> list[Chunk]:
+    result = await session.execute(select(Chunk).where(Chunk.snapshot_id == snapshot_id))
+    return list(result.scalars())
+
+
+async def symbols_for_snapshot(session: AsyncSession, snapshot_id: uuid.UUID) -> list[Symbol]:
+    result = await session.execute(select(Symbol).where(Symbol.snapshot_id == snapshot_id))
+    return list(result.scalars())
+
+
+async def edges_for_snapshot(session: AsyncSession, snapshot_id: uuid.UUID) -> list[Edge]:
+    result = await session.execute(select(Edge).where(Edge.snapshot_id == snapshot_id))
+    return list(result.scalars())
+
+
 async def delete_repo_rows(session: AsyncSession, repo_id: uuid.UUID) -> bool:
     """Delete a repo and every dependent row. Returns False if the repo doesn't exist.
 
