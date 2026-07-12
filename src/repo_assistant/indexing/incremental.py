@@ -78,11 +78,15 @@ async def incremental_index(
     workdir: str | None = None,
     enricher: LLMClient | None = None,
     on_stage: OnStage | None = None,
+    token: str | None = None,
 ) -> IncrementalResult:
-    """Clone ``url`` at its latest ref and apply an incremental update."""
+    """Clone ``url`` at its latest ref and apply an incremental update.
+
+    ``token`` is a GitHub App installation token for a private repo (docs/adr/0020).
+    """
     with tempfile.TemporaryDirectory(dir=workdir) as tmp:
         await _notify(on_stage, "cloning", url=url, ref=ref)
-        acquisition = await clone(url, tmp, ref=ref)
+        acquisition = await clone(url, tmp, ref=ref, token=token)
         return await update_working_tree(
             acquisition,
             embedder=embedder,

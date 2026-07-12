@@ -59,26 +59,43 @@ async def _run_git(*args: str, cwd: str | None = None) -> str:
     return stdout.decode("utf-8", "replace")
 
 
-async def clone(url: str, dest: str, ref: str | None = None) -> Acquisition:
+def _authenticated_url(clone_url: str, token: str | None) -> str:
+    """Embed a GitHub App installation token for a private clone (docs/adr/0020).
+
+    Uses GitHub's documented ``x-access-token:<token>@`` form. The result contains a
+    secret, so it is never logged — only the sanitized ``clone_url`` is.
+    """
+    if not token:
+        return clone_url
+    return clone_url.replace("https://", f"https://x-access-token:{token}@", 1)
+
+
+async def clone(
+    url: str, dest: str, ref: str | None = None, *, token: str | None = None
+) -> Acquisition:
     """Blobless-clone ``url`` into ``dest`` and check out ``ref`` (or the default branch).
 
     ``ref`` may be a branch name, a tag, or a full commit SHA. A branch/tag is a
     ``--branch`` target on the clone; a SHA cannot be (``--branch`` only accepts
     named refs), so it is fetched explicitly and checked out — the object may not
     be present after a blobless partial clone if it is off the default branch.
+
+    ``token`` is a GitHub App installation token for private repos; it is injected
+    into the remote URL and never logged.
     """
     clone_url = normalize_github_url(url)
-    logger.info("cloning repository", url=clone_url, ref=ref, dest=dest)
+    logger.info("cloning repository", url=clone_url, ref=ref, dest=dest, private=bool(token))
+    remote = _authenticated_url(clone_url, token)
 
     if ref and _looks_like_sha(ref):
-        await _run_git("clone", "--filter=blob:none", "--quiet", "--no-checkout", clone_url, dest)
+        await _run_git("clone", "--filter=blob:none", "--quiet", "--no-checkout", remote, dest)
         await _run_git("fetch", "--filter=blob:none", "--quiet", "origin", ref, cwd=dest)
         await _run_git("checkout", "--quiet", ref, cwd=dest)
     else:
         args = ["clone", "--filter=blob:none", "--quiet"]
         if ref:
             args += ["--branch", ref]
-        args += [clone_url, dest]
+        args += [remote, dest]
         await _run_git(*args)
 
     commit_sha = (await _run_git("rev-parse", "HEAD", cwd=dest)).strip()

@@ -83,7 +83,7 @@
 **Goal:** run it for real, keep it fresh, keep it safe. **In progress.**
 
 - 🟡 Incremental indexing — **core shipped** ([ADR-0018](adr/0018-incremental-indexing.md)): content-hash diff, copy-forward unchanged (rows + Qdrant points), atomic new snapshot; `ra update` + enqueued `update` job + **HMAC-verified GitHub push webhook** (`POST /webhooks/github`). Remaining: summary staleness budgets, polling trigger, snapshot GC, 50k-file scale validation
-- Private repositories: GitHub App installation flow, encrypted tokens
+- 🟡 Private repositories — **server-side machinery shipped** ([ADR-0020](adr/0020-private-repositories.md)): GitHub App JWT → installation-token exchange, Fernet-encrypted token cache, authenticated clone, data model + registration wiring. Remaining: the interactive install redirect + `installation` webhook, token-key rotation, revoke-on-uninstall
 - 🟡 Observability — **shipped** ([ADR-0019](adr/0019-observability.md)): OTLP-native OTel traces (Langfuse/Jaeger/Tempo via OTLP, no vendor SDK) + Prometheus `/metrics` (HTTP, ingestion stages, retrieval, embedding cache, LLM token spend, citation drops). Remaining: Grafana dashboards + alert rules, router-disagreement metric, worker-process metrics
 - Security pass: prompt-injection red-team of the agent loop, secret-scanning verification, dependency audit
 - Scale validation: index a 50k-file repo within time/cost budget; incremental update touches only changed files (verified)

@@ -23,3 +23,4 @@ Format: Status / Context / Decision / Alternatives considered / Consequences. AD
 | [0017](0017-web-ui.md) | Minimal Next.js web UI: SSE-over-fetch, localStorage key, GitHub deep-link citations | Accepted |
 | [0018](0018-incremental-indexing.md) | Incremental indexing: content-hash diff, copy-forward unchanged, HMAC webhook trigger | Accepted |
 | [0019](0019-observability.md) | Observability: OTLP-native OTel traces (Langfuse via OTLP, no vendor SDK) + Prometheus metrics | Accepted |
+| [0020](0020-private-repositories.md) | Private repos via a GitHub App; Fernet-encrypted installation tokens; authenticated clone | Accepted |

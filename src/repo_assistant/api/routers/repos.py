@@ -40,6 +40,9 @@ async def register_repo(body: RepoCreate, runtime: RuntimeDep, queue: QueueDep) 
     url = normalize_github_url(body.url)  # IngestionError -> 400 for a bad URL
     async with runtime.session_factory() as session:
         repo_row = await repo.create_or_get_repo(session, url, body.ref or "main")
+        if body.installation_id is not None:
+            # Private repo: bind it to the GitHub App installation (docs/adr/0020).
+            await repo.set_repo_installation(session, repo_row.id, body.installation_id)
         job = await repo.create_job(
             session,
             repo_row.id,
@@ -47,6 +50,7 @@ async def register_repo(body: RepoCreate, runtime: RuntimeDep, queue: QueueDep) 
         )
         await repo.set_repo_status(session, repo_row.id, "pending")
         await session.commit()
+        await session.refresh(repo_row)
         registered = RepoRegistered(
             repo=RepoOut.model_validate(repo_row), job=JobOut.model_validate(job)
         )

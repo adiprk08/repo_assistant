@@ -21,6 +21,7 @@ def test_all_models_are_registered_on_the_shared_metadata() -> None:
         "chat_sessions",
         "chat_messages",
         "api_keys",
+        "github_installations",
     }
 
 

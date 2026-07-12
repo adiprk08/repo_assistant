@@ -35,6 +35,20 @@ async def _patch_job(
         await session.commit()
 
 
+async def _acquire_token(runtime: Runtime, repo_id: uuid.UUID) -> str | None:
+    """Mint a GitHub App installation token for a private repo, else None (docs/adr/0020)."""
+    from repo_assistant.storage.models import Repo
+
+    async with runtime.session_factory() as session:
+        repo_row = await session.get(Repo, repo_id)
+    if repo_row is None or repo_row.visibility != "private" or not repo_row.installation_id:
+        return None
+    from repo_assistant.ingestion.github_app import InstallationTokenProvider
+
+    provider = InstallationTokenProvider.from_settings(runtime.settings, runtime.session_factory)
+    return await provider.token(repo_row.installation_id)
+
+
 async def run_ingestion(ctx: dict[str, Any], job_id: str) -> None:
     runtime: Runtime = ctx["runtime"]
     jid = uuid.UUID(job_id)
@@ -61,6 +75,7 @@ async def run_ingestion(ctx: dict[str, Any], job_id: str) -> None:
         runtime.llm(model=runtime.settings.enrichment_model) if params.get("enrich") else None
     )
     try:
+        token = await _acquire_token(runtime, repo_id)
         result = await index_repository(
             url,
             embedder=runtime.embedder(),
@@ -69,6 +84,7 @@ async def run_ingestion(ctx: dict[str, Any], job_id: str) -> None:
             ref=params.get("ref"),
             enricher=enricher,
             on_stage=on_stage,
+            token=token,
         )
     except Exception as exc:
         await _patch_job(runtime, jid, state="failed", error=str(exc))
@@ -123,6 +139,7 @@ async def run_update(ctx: dict[str, Any], job_id: str) -> None:
         runtime.llm(model=runtime.settings.enrichment_model) if params.get("enrich") else None
     )
     try:
+        token = await _acquire_token(runtime, repo_id)
         result = await incremental_index(
             url,
             embedder=runtime.embedder(),
@@ -131,6 +148,7 @@ async def run_update(ctx: dict[str, Any], job_id: str) -> None:
             ref=params.get("ref"),
             enricher=enricher,
             on_stage=on_stage,
+            token=token,
         )
     except Exception as exc:
         await _patch_job(runtime, jid, state="failed", error=str(exc))

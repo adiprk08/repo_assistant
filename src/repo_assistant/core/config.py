@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     otel_exporter_endpoint: str = "http://localhost:4318"  # OTLP/HTTP base URL
     otel_service_name: str = "repo-assistant"
 
+    # Private repos via a GitHub App (docs/adr/0020). All optional — unset means
+    # only public repos are supported.
+    token_encryption_key: str | None = None  # Fernet key; encrypts stored tokens at rest
+    github_app_id: str | None = None
+    github_app_private_key: str | None = None  # PEM contents (or a path to a .pem)
+
     @field_validator("cors_allow_origins", mode="before")
     @classmethod
     def _split_csv(cls, value: object) -> object:

@@ -37,6 +37,8 @@ class Repo(Base):
     default_ref: Mapped[str] = mapped_column(String, default="main")
     visibility: Mapped[str] = mapped_column(String, default="public")
     status: Mapped[str] = mapped_column(String, default="pending")
+    # GitHub App installation that can read this repo (private repos only; docs/adr/0020).
+    installation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     active_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("snapshots.id", use_alter=True), nullable=True
     )
@@ -232,6 +234,23 @@ class ApiKey(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     __table_args__ = (Index("ix_api_keys_hash", "key_hash"),)
+
+
+class GithubInstallation(Base):
+    """A GitHub App installation and its cached, encrypted access token (docs/adr/0020).
+
+    ``token_encrypted`` is Fernet-encrypted ciphertext — never a plaintext token —
+    reused until ``token_expires_at`` nears, then re-minted."""
+
+    __tablename__ = "github_installations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    installation_id: Mapped[int] = mapped_column(BigInteger, unique=True)
+    account_login: Mapped[str | None] = mapped_column(String, nullable=True)
+    token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
 
 class EvalRun(Base):

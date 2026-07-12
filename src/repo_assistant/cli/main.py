@@ -5,7 +5,7 @@ import asyncio
 import typer
 
 from repo_assistant import __version__
-from repo_assistant.core.errors import NotFoundError, ProviderError
+from repo_assistant.core.errors import NotFoundError, ProviderError, ValidationError
 from repo_assistant.reasoning.service import Answer
 
 app = typer.Typer(
@@ -23,14 +23,17 @@ def version() -> None:
 
 @app.command()
 def index(
-    github_url: str = typer.Argument(..., help="Public GitHub repository URL."),
+    github_url: str = typer.Argument(..., help="GitHub repository URL."),
     ref: str | None = typer.Option(None, "--ref", help="Branch, tag, or commit to index."),
     enrich: bool = typer.Option(
         False, "--enrich", help="Add LLM contextual descriptions to chunks (Haiku; ADR-0002)."
     ),
+    installation_id: int | None = typer.Option(
+        None, "--installation-id", help="GitHub App installation id for a private repo (ADR-0020)."
+    ),
 ) -> None:
     """Clone, parse, and index a GitHub repository."""
-    asyncio.run(_index(github_url, ref, enrich))
+    asyncio.run(_index(github_url, ref, enrich, installation_id))
 
 
 @app.command()
@@ -225,13 +228,23 @@ def eval(
     )
 
 
-async def _index(github_url: str, ref: str | None, enrich: bool) -> None:
+async def _index(
+    github_url: str, ref: str | None, enrich: bool, installation_id: int | None = None
+) -> None:
     from repo_assistant.cli.runtime import build_runtime
     from repo_assistant.indexing.pipeline import index_repository
 
     runtime = build_runtime()
     enricher = runtime.llm(model=runtime.settings.enrichment_model) if enrich else None
     try:
+        token = None
+        if installation_id is not None:
+            from repo_assistant.ingestion.github_app import InstallationTokenProvider
+
+            provider = InstallationTokenProvider.from_settings(
+                runtime.settings, runtime.session_factory
+            )
+            token = await provider.token(installation_id)
         typer.echo(f"Indexing {github_url} {'(enriched) ' if enrich else ''}...")
         result = await index_repository(
             github_url,
@@ -240,8 +253,15 @@ async def _index(github_url: str, ref: str | None, enrich: bool) -> None:
             session_factory=runtime.session_factory,
             ref=ref,
             enricher=enricher,
+            token=token,
         )
-    except ProviderError as exc:
+        if installation_id is not None:
+            from repo_assistant.storage import repositories as repo
+
+            async with runtime.session_factory() as session:
+                await repo.set_repo_installation(session, result.repo_id, installation_id)
+                await session.commit()
+    except (ProviderError, ValidationError) as exc:
         raise typer.Exit(code=_fail(str(exc))) from exc
     finally:
         await runtime.aclose()

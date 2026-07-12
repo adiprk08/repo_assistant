@@ -134,7 +134,7 @@ async def client(runtime: _FakeRuntime) -> AsyncIterator[tuple[httpx.AsyncClient
 async def _drive_worker(runtime: _FakeRuntime, monkeypatch, local_repo, job_id: uuid.UUID) -> None:
     """Run the ingestion job with the real pipeline, but clone -> the local repo."""
 
-    async def fake_clone(url: str, dest: str, ref: str | None = None):
+    async def fake_clone(url: str, dest: str, ref: str | None = None, *, token: str | None = None):
         # Preserve the registered URL so create_or_get_repo matches the existing row.
         return ingestion_models.Acquisition(
             url=url,

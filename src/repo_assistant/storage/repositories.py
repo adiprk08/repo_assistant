@@ -17,6 +17,7 @@ from repo_assistant.storage.models import (
     Chunk,
     Edge,
     File,
+    GithubInstallation,
     Job,
     Repo,
     Snapshot,
@@ -88,6 +89,17 @@ async def list_repos(session: AsyncSession) -> list[Repo]:
 
 async def set_repo_status(session: AsyncSession, repo_id: uuid.UUID, status: str) -> None:
     await session.execute(update(Repo).where(Repo.id == repo_id).values(status=status))
+
+
+async def set_repo_installation(
+    session: AsyncSession, repo_id: uuid.UUID, installation_id: int
+) -> None:
+    """Mark a repo private and bind it to the GitHub App installation that can read it."""
+    await session.execute(
+        update(Repo)
+        .where(Repo.id == repo_id)
+        .values(visibility="private", installation_id=installation_id)
+    )
 
 
 async def create_job(
@@ -309,6 +321,41 @@ async def revoke_api_key(session: AsyncSession, key_id: uuid.UUID) -> bool:
         return False
     api_key.revoked_at = _now()
     return True
+
+
+async def get_installation(
+    session: AsyncSession, installation_id: int
+) -> GithubInstallation | None:
+    result = await session.execute(
+        select(GithubInstallation).where(GithubInstallation.installation_id == installation_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def upsert_installation_token(
+    session: AsyncSession,
+    installation_id: int,
+    *,
+    account_login: str | None,
+    token_encrypted: str,
+    token_expires_at,
+) -> None:
+    """Insert or refresh the cached (encrypted) token for an installation."""
+    row = await get_installation(session, installation_id)
+    if row is None:
+        session.add(
+            GithubInstallation(
+                installation_id=installation_id,
+                account_login=account_login,
+                token_encrypted=token_encrypted,
+                token_expires_at=token_expires_at,
+            )
+        )
+        return
+    row.token_encrypted = token_encrypted
+    row.token_expires_at = token_expires_at
+    if account_login:
+        row.account_login = account_login
 
 
 def _now():

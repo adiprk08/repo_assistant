@@ -12,11 +12,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class RepoCreate(BaseModel):
-    url: str = Field(description="Public GitHub repository URL.")
+    url: str = Field(description="GitHub repository URL.")
     ref: str | None = Field(default=None, description="Branch, tag, or full commit SHA.")
     enrich: bool = Field(
         default=False,
         description="Add LLM contextual descriptions to chunks before embedding (ADR-0013).",
+    )
+    installation_id: int | None = Field(
+        default=None,
+        description="GitHub App installation id for a private repo (ADR-0020); omit for public.",
     )
 
 
