@@ -7,6 +7,7 @@ are unit-testable without network access or infrastructure.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -75,6 +76,10 @@ class Document:
     content: str
 
 
+OnText = Callable[[str], Awaitable[None]]
+"""Streaming callback: awaited once per text delta during generation."""
+
+
 class LLMClient(ABC):
     """A chat-completion provider supporting grounded generation, tool use, and citations."""
 
@@ -88,6 +93,34 @@ class LLMClient(ABC):
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int = 4096,
     ) -> LLMResponse: ...
+
+    async def generate_stream(
+        self,
+        *,
+        messages: list[Message],
+        on_text: OnText,
+        system: str = "",
+        documents: list[Document] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        """Generate with incremental text deltas pushed through ``on_text``.
+
+        The returned response is identical to ``generate``'s — callers that need
+        citations or usage keep working with the final object. The default emits
+        the whole text as one delta, so providers without native streaming (and
+        every test fake) satisfy the streaming contract for free.
+        """
+        response = await self.generate(
+            messages=messages,
+            system=system,
+            documents=documents,
+            tools=tools,
+            max_tokens=max_tokens,
+        )
+        if response.text:
+            await on_text(response.text)
+        return response
 
 
 InputType = Literal["document", "query"]
@@ -150,6 +183,10 @@ class VectorIndex(ABC):
 
     async def prepare(self, dimensions: int) -> None:
         """One-time setup (e.g. create the collection). Default: no-op."""
+        return None
+
+    async def aclose(self) -> None:
+        """Release client connections. Default: no-op for in-memory indexes."""
         return None
 
     @abstractmethod

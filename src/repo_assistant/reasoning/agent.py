@@ -9,7 +9,7 @@ so both paths share one answer contract.
 
 from dataclasses import dataclass
 
-from repo_assistant.core.interfaces import LLMClient, Message, ToolResult
+from repo_assistant.core.interfaces import LLMClient, Message, OnText, ToolResult
 from repo_assistant.core.logging import get_logger
 from repo_assistant.reasoning.service import Answer, generate_answer
 from repo_assistant.reasoning.tools import TOOL_SCHEMAS, ToolContext, execute_tool, search_code
@@ -56,12 +56,20 @@ class AgentAnswer:
 
 
 async def run_agent(
-    question: str, *, ctx: ToolContext, llm: LLMClient, budget: int = 8, gather_only: bool = False
+    question: str,
+    *,
+    ctx: ToolContext,
+    llm: LLMClient,
+    budget: int = 8,
+    gather_only: bool = False,
+    on_text: OnText | None = None,
 ) -> AgentAnswer:
     """Explore with tools up to ``budget`` calls, then answer from what was gathered.
 
     ``gather_only`` skips the final grounded generation — used by the cheap
     retrieval-only agentic eval, which scores the gathered evidence itself.
+    ``on_text`` streams only the final answer generation; the exploration loop's
+    internal turns are never surfaced.
     """
     messages: list[Message] = [Message(role="user", content=question)]
     system = _agent_system(budget)
@@ -92,7 +100,9 @@ async def run_agent(
         await search_code(ctx, query=question)
     chunks = ctx.grounding_chunks()
 
-    answer = None if gather_only else await generate_answer(question, chunks, llm=llm)
+    answer = (
+        None if gather_only else await generate_answer(question, chunks, llm=llm, on_text=on_text)
+    )
     logger.info(
         "agent finished",
         n_tool_calls=n_tool_calls,

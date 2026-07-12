@@ -16,6 +16,7 @@ from repo_assistant.core.interfaces import (
     LLMClient,
     LLMResponse,
     Message,
+    OnText,
     Reranker,
     RerankResult,
     SearchResult,
@@ -162,3 +163,26 @@ class FakeLLMClient(LLMClient):
             text=text,
             usage=Usage(input_tokens=prompt_chars // 4, output_tokens=len(text) // 4),
         )
+
+    async def generate_stream(
+        self,
+        *,
+        messages: list[Message],
+        on_text: OnText,
+        system: str = "",
+        documents: list[Document] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        """Streams the answer word by word so consumers see multiple deltas."""
+        response = await self.generate(
+            messages=messages,
+            system=system,
+            documents=documents,
+            tools=tools,
+            max_tokens=max_tokens,
+        )
+        words = response.text.split(" ")
+        for i, word in enumerate(words):
+            await on_text(word if i == len(words) - 1 else word + " ")
+        return response

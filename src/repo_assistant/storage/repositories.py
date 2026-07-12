@@ -7,10 +7,10 @@ one place (docs/adr/0009-multitenancy-and-versioning.md).
 
 import uuid
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from repo_assistant.storage.models import Chunk, File, Repo, Snapshot, Symbol
+from repo_assistant.storage.models import Chunk, Edge, File, Job, Repo, Snapshot, Symbol
 
 
 async def get_repo_by_url(session: AsyncSession, url: str) -> Repo | None:
@@ -68,6 +68,97 @@ async def get_active_snapshot(session: AsyncSession, repo_id: uuid.UUID) -> Snap
     if repo is None or repo.active_snapshot_id is None:
         return None
     return await session.get(Snapshot, repo.active_snapshot_id)
+
+
+async def list_repos(session: AsyncSession) -> list[Repo]:
+    result = await session.execute(select(Repo).order_by(Repo.created_at))
+    return list(result.scalars())
+
+
+async def set_repo_status(session: AsyncSession, repo_id: uuid.UUID, status: str) -> None:
+    await session.execute(update(Repo).where(Repo.id == repo_id).values(status=status))
+
+
+async def create_job(
+    session: AsyncSession,
+    repo_id: uuid.UUID,
+    *,
+    job_type: str = "ingestion",
+    params: dict | None = None,
+) -> Job:
+    job = Job(repo_id=repo_id, job_type=job_type, params=params or {})
+    session.add(job)
+    await session.flush()
+    return job
+
+
+async def get_job(session: AsyncSession, job_id: uuid.UUID) -> Job | None:
+    return await session.get(Job, job_id)
+
+
+async def latest_job_for_repo(session: AsyncSession, repo_id: uuid.UUID) -> Job | None:
+    result = await session.execute(
+        select(Job).where(Job.repo_id == repo_id).order_by(Job.created_at.desc()).limit(1)
+    )
+    return result.scalars().first()
+
+
+async def update_job(
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    *,
+    stage: str | None = None,
+    state: str | None = None,
+    progress: dict | None = None,
+    error: str | None = None,
+) -> None:
+    """Patch a job row. ``progress`` keys are merged into the existing JSONB dict."""
+    job = await session.get(Job, job_id)
+    if job is None:
+        return
+    if stage is not None:
+        job.stage = stage
+    if state is not None:
+        job.state = state
+    if progress:
+        job.progress = {**job.progress, **progress}
+    if error is not None:
+        job.error = error
+
+
+async def snapshot_ids_for_repo(session: AsyncSession, repo_id: uuid.UUID) -> list[uuid.UUID]:
+    result = await session.execute(select(Snapshot.id).where(Snapshot.repo_id == repo_id))
+    return list(result.scalars())
+
+
+async def chunk_ids_for_snapshots(
+    session: AsyncSession, snapshot_ids: list[uuid.UUID]
+) -> list[uuid.UUID]:
+    if not snapshot_ids:
+        return []
+    result = await session.execute(select(Chunk.id).where(Chunk.snapshot_id.in_(snapshot_ids)))
+    return list(result.scalars())
+
+
+async def delete_repo_rows(session: AsyncSession, repo_id: uuid.UUID) -> bool:
+    """Delete a repo and every dependent row. Returns False if the repo doesn't exist.
+
+    Vector points are not touched here — the caller owns cross-store deletion
+    (see indexing/deletion.py).
+    """
+    repo = await session.get(Repo, repo_id)
+    if repo is None:
+        return False
+    snapshot_ids = await snapshot_ids_for_repo(session, repo_id)
+    # Break the repos -> snapshots FK cycle before deleting snapshots.
+    await session.execute(update(Repo).where(Repo.id == repo_id).values(active_snapshot_id=None))
+    for model in (Chunk, Symbol, Edge, File):
+        if snapshot_ids:
+            await session.execute(delete(model).where(model.snapshot_id.in_(snapshot_ids)))
+    await session.execute(delete(Job).where(Job.repo_id == repo_id))
+    await session.execute(delete(Snapshot).where(Snapshot.repo_id == repo_id))
+    await session.execute(delete(Repo).where(Repo.id == repo_id))
+    return True
 
 
 def _now():

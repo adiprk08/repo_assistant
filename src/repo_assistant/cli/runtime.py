@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from repo_assistant.core.config import Settings, get_settings
 from repo_assistant.core.errors import NotFoundError
-from repo_assistant.core.interfaces import Embedder, LLMClient, Reranker
+from repo_assistant.core.interfaces import Embedder, LLMClient, Reranker, VectorIndex
 from repo_assistant.indexing.cache import CachingEmbedder, EmbeddingCacheStore
 from repo_assistant.indexing.qdrant_index import QdrantVectorIndex
 from repo_assistant.ingestion.git import normalize_github_url
@@ -26,7 +26,7 @@ from repo_assistant.storage.models import Repo
 class Runtime:
     settings: Settings
     session_factory: async_sessionmaker[AsyncSession]
-    vector_index: QdrantVectorIndex
+    vector_index: VectorIndex
 
     def embedder(self) -> Embedder:
         """Voyage embedder wrapped in the content-addressed cache."""
@@ -41,7 +41,7 @@ class Runtime:
         return get_reranker(self.settings)
 
     async def aclose(self) -> None:
-        await self.vector_index._client.close()
+        await self.vector_index.aclose()
 
 
 def build_runtime(settings: Settings | None = None) -> Runtime:

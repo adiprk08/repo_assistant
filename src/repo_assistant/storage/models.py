@@ -153,6 +153,7 @@ class Job(Base):
     job_type: Mapped[str] = mapped_column(String)
     stage: Mapped[str] = mapped_column(String, default="pending")
     state: Mapped[str] = mapped_column(String, default="queued")
+    params: Mapped[dict] = mapped_column(JSONB, default=dict)
     progress: Mapped[dict] = mapped_column(JSONB, default=dict)
     checkpoints: Mapped[dict] = mapped_column(JSONB, default=dict)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

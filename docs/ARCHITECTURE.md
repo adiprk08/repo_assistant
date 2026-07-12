@@ -61,10 +61,15 @@ flowchart LR
 
 Two runtime processes share one library:
 
-- **API service** (FastAPI): repo registration, chat with SSE streaming, search endpoints, job status.
-- **Worker** (arq): ingestion/indexing jobs, summary generation, incremental updates.
+- **API service** (FastAPI): repo registration, chat with SSE streaming, search endpoints, job status. Endpoints (Phase 4, [ADR-0014](adr/0014-api-service-and-streaming.md)):
+  - `POST /repos` — register a repo and enqueue an ingestion job (202); `GET /repos`, `GET /repos/{id}` (detail: active snapshot + latest job), `DELETE /repos/{id}` (drops rows + vector points).
+  - `GET /repos/{id}/job` — latest ingestion job; `GET /repos/{id}/job/stream` — **SSE** of stage/progress until a terminal state.
+  - `POST /repos/{id}/search` — hybrid retrieval over the active snapshot (ranked path/span/score/excerpt).
+  - `POST /repos/{id}/chat` — routed, grounded answer **streamed over SSE** (`token` events, then a `done` event with verified citations + routing metadata).
+  - `GET /health`. Domain errors ([core/errors](../src/repo_assistant/core/errors.py)) map to status codes centrally (NotFound→404, Ingestion→400, Validation→422, Provider→502).
+- **Worker** (arq): ingestion/indexing jobs, summary generation, incremental updates. The job row (`jobs`) is the state machine; each stage transition is persisted so the API's SSE endpoint streams progress by polling it.
 
-Everything of substance lives in the `repo_assistant` Python package; API, worker, and CLI are thin shells. This keeps every pipeline runnable and testable without infrastructure ([ADR-0001](adr/0001-language-and-stack.md)).
+Everything of substance lives in the `repo_assistant` Python package; API, worker, and CLI are thin shells (`create_app` composes one `Runtime` + one `IngestionQueue` for its lifetime; routers wrap a single library call each). This keeps every pipeline runnable and testable without infrastructure ([ADR-0001](adr/0001-language-and-stack.md)).
 
 ## 3. Repository layout and module responsibilities
 
@@ -103,7 +108,7 @@ Dependency rule: `api`/`workers`/`cli` → pipelines (`ingestion`…`reasoning`)
 
 ## 4. Ingestion pipeline
 
-State machine per repo snapshot: `PENDING → CLONING → SCANNING → PARSING → EMBEDDING → INDEXING → ENRICHING → READY | FAILED`, with per-stage progress persisted (resumable — [ADR-0008](adr/0008-job-queue.md)).
+Stages (in execution order, as the worker emits them to the job row): `cloning → scanning → parsing → [enriching] → embedding → indexing → ready | failed`, with per-stage progress persisted (resumable — [ADR-0008](adr/0008-job-queue.md)). Enrichment precedes embedding because contextual descriptions are folded into the embedded text; it runs only when `--enrich`/`enrich: true` is set. The API job row additionally carries a coarse *state* (`queued → running → succeeded | failed`) for clients that only need liveness ([ADR-0014](adr/0014-api-service-and-streaming.md)).
 
 1. **Acquire** — `git clone` (blobless partial clone `--filter=blob:none`, then checkout target ref); record commit SHA. Updates: `git fetch` + `git diff --name-status <indexed>..<new>`.
 2. **Scan** — walk the tree honoring `.gitignore` plus our exclusion policy: binaries, vendored/generated dirs (`node_modules`, `dist`, minified files, lockfiles), files > 1 MB, high-entropy secret candidates (redacted, never indexed). Language detection by extension + available tree-sitter grammar.

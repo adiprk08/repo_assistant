@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from repo_assistant.core.interfaces import Embedder, LLMClient, Reranker, VectorIndex
+from repo_assistant.core.interfaces import Embedder, LLMClient, OnText, Reranker, VectorIndex
 from repo_assistant.reasoning.agent import run_agent
 from repo_assistant.reasoning.router import Path, RouterDecision, classify_intent
 from repo_assistant.reasoning.service import Answer, generate_answer
@@ -44,11 +44,13 @@ async def answer_routed(
     force_path: Path | None = None,
     budget: int = 8,
     gather_only: bool = False,
+    on_text: OnText | None = None,
 ) -> RoutedAnswer:
     """Route ``question`` to the fast or agent path and answer it.
 
     ``gather_only`` returns the surfaced evidence without the final grounded
-    generation — used by the cheap retrieval-only agentic eval.
+    generation — used by the cheap retrieval-only agentic eval. ``on_text``
+    streams the final answer's text deltas (both paths).
     """
     if force_path is not None:
         decision = RouterDecision(intent="other", multi_hop=force_path == "agent", path=force_path)
@@ -65,7 +67,9 @@ async def answer_routed(
             session_factory=session_factory,
             reranker=reranker,
         )
-        result = await run_agent(question, ctx=ctx, llm=llm, budget=budget, gather_only=gather_only)
+        result = await run_agent(
+            question, ctx=ctx, llm=llm, budget=budget, gather_only=gather_only, on_text=on_text
+        )
         return RoutedAnswer(
             answer=result.answer,
             chunks=result.chunks,
@@ -87,7 +91,11 @@ async def answer_routed(
         use_graph=False,
         use_rerank=False,
     )
-    answer = None if gather_only else await generate_answer(question, retrieved, llm=llm)
+    answer = (
+        None
+        if gather_only
+        else await generate_answer(question, retrieved, llm=llm, on_text=on_text)
+    )
     return RoutedAnswer(
         answer=answer,
         chunks=retrieved,

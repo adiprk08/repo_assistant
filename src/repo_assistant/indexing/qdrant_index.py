@@ -35,6 +35,9 @@ class QdrantVectorIndex(VectorIndex):
         # API. Aligning client and server versions is a Phase 5 hardening task.
         return cls(AsyncQdrantClient(url=url, check_compatibility=False), collection=collection)
 
+    async def aclose(self) -> None:
+        await self._client.close()
+
     async def prepare(self, dimensions: int) -> None:
         """Create the collection and the tenant payload index if absent (idempotent).
 

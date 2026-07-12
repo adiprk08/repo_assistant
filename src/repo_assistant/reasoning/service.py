@@ -11,6 +11,7 @@ from repo_assistant.core.interfaces import (
     Embedder,
     LLMClient,
     Message,
+    OnText,
     Usage,
     VectorIndex,
 )
@@ -52,23 +53,35 @@ async def generate_answer(
     llm: LLMClient,
     history: list[Message] | None = None,
     context_limit: int = 12,
+    on_text: OnText | None = None,
 ) -> Answer:
     """Generate a grounded, citation-verified answer from already-retrieved chunks.
 
     The retrieved chunks are assembled first — overlapping spans deduped and each
     file capped — so the model gets diverse, non-redundant context and citations
-    don't pile up on the same lines.
+    don't pile up on the same lines. When ``on_text`` is given, text deltas are
+    streamed through it while the returned Answer stays complete and verified.
     """
     context = assemble_context(retrieved, limit=context_limit)
     if not context:
+        if on_text is not None:
+            await on_text(_REFUSAL)
         return Answer(text=_REFUSAL, citations=[], retrieved=[], refused=True)
 
     messages = [*(history or []), Message(role="user", content=question)]
-    response = await llm.generate(
-        messages=messages,
-        system=SYSTEM_PROMPT,
-        documents=_documents(context),
-    )
+    if on_text is None:
+        response = await llm.generate(
+            messages=messages,
+            system=SYSTEM_PROMPT,
+            documents=_documents(context),
+        )
+    else:
+        response = await llm.generate_stream(
+            messages=messages,
+            on_text=on_text,
+            system=SYSTEM_PROMPT,
+            documents=_documents(context),
+        )
 
     citations = verify_citations(response.citations, context)
     dropped = len(response.citations) - len(citations)

@@ -1,6 +1,6 @@
 # Roadmap
 
-> Status: **Phase 3 in progress** (updated 2026-07-11) — Phases 0–2 complete. Estimates assume focused part-time development with AI assistance; phases are sequential but each ships something usable.
+> Status: **Phase 4 in progress** (updated 2026-07-12) — Phases 0–3 complete. Estimates assume focused part-time development with AI assistance; phases are sequential but each ships something usable.
 
 ## Guiding principles
 

@@ -45,6 +45,34 @@ def chat(
 
 
 @app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind address."),
+    port: int = typer.Option(8000, "--port", help="Bind port."),
+    reload: bool = typer.Option(False, "--reload", help="Auto-reload on code changes (dev)."),
+) -> None:
+    """Run the FastAPI service (repos, ingestion jobs, search, chat)."""
+    import uvicorn
+
+    uvicorn.run(
+        "repo_assistant.api.app:create_app",
+        host=host,
+        port=port,
+        reload=reload,
+        factory=True,
+    )
+
+
+@app.command()
+def worker() -> None:
+    """Run the arq ingestion worker (needs Redis + the storage stack)."""
+    from arq import run_worker
+
+    from repo_assistant.workers.settings import WorkerSettings
+
+    run_worker(WorkerSettings)  # type: ignore[arg-type]
+
+
+@app.command()
 def eval(
     datasets_dir: str = typer.Option("evals/datasets", "--datasets", help="Golden dataset dir."),
     dense_only: bool = typer.Option(

@@ -9,8 +9,10 @@ whole flow runs against fakes with zero API/infra cost in tests.
 import hashlib
 import tempfile
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -34,6 +36,19 @@ from repo_assistant.storage.models import Symbol as SymbolRow
 logger = get_logger(__name__)
 
 _POINT_NAMESPACE = uuid.UUID("6f9619ff-8b86-d011-b42d-00cf4fc964ff")
+
+OnStage = Callable[[str, dict[str, Any]], Awaitable[None]]
+"""Progress callback: awaited at each stage transition with (stage, progress).
+
+Stages, in execution order: cloning, scanning, parsing, enriching (only when an
+enricher is set), embedding, indexing. The worker persists these to the job row
+so the API's SSE endpoint can stream them (docs/adr/0008, docs/adr/0014).
+"""
+
+
+async def _notify(on_stage: OnStage | None, stage: str, **progress: Any) -> None:
+    if on_stage is not None:
+        await on_stage(stage, progress)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,9 +177,11 @@ async def index_repository(
     ref: str | None = None,
     workdir: str | None = None,
     enricher: LLMClient | None = None,
+    on_stage: OnStage | None = None,
 ) -> IndexResult:
     """Clone ``url`` and index it. The clone lives only for the duration of indexing."""
     with tempfile.TemporaryDirectory(dir=workdir) as tmp:
+        await _notify(on_stage, "cloning", url=url, ref=ref)
         acquisition = await clone(url, tmp, ref=ref)
         return await index_working_tree(
             acquisition,
@@ -172,6 +189,7 @@ async def index_repository(
             vector_index=vector_index,
             session_factory=session_factory,
             enricher=enricher,
+            on_stage=on_stage,
         )
 
 
@@ -182,6 +200,7 @@ async def index_working_tree(
     vector_index: VectorIndex,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     enricher: LLMClient | None = None,
+    on_stage: OnStage | None = None,
 ) -> IndexResult:
     """Index an already-acquired working tree (scan -> chunk -> [enrich] -> embed -> persist).
 
@@ -191,16 +210,23 @@ async def index_working_tree(
     """
     session_factory = session_factory or make_session_factory_from_settings()
 
+    await _notify(on_stage, "scanning")
     scan_result = await scan(acquisition)
+    await _notify(on_stage, "parsing", files=len(scan_result.files))
     chunks, symbol_rows, contexts = await _build_units(acquisition, scan_result.files)
     edges = extract_edges(contexts)
 
     if enricher is not None:
+        await _notify(on_stage, "enriching", chunks=len(chunks))
         chunks = await enrich_chunks(enricher, chunks)
 
+    await _notify(on_stage, "embedding", chunks=len(chunks))
     await vector_index.prepare(embedder.dimensions)
     vectors = await embedder.embed([c.embed_text for c in chunks], input_type="document")
 
+    await _notify(
+        on_stage, "indexing", chunks=len(chunks), symbols=len(symbol_rows), edges=len(edges)
+    )
     async with session_factory() as session:
         repo_row = await repo.create_or_get_repo(session, acquisition.url, acquisition.ref)
         snapshot = await repo.create_snapshot(session, repo_row.id, acquisition.commit_sha)

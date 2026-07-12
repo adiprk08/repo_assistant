@@ -17,6 +17,7 @@ from repo_assistant.core.interfaces import (
     LLMClient,
     LLMResponse,
     Message,
+    OnText,
     ToolCall,
     ToolResult,
     Usage,
@@ -123,15 +124,15 @@ class AnthropicLLMClient(LLMClient):
     def model_name(self) -> str:
         return self._model
 
-    async def generate(
+    def _request_kwargs(
         self,
         *,
         messages: list[Message],
-        system: str = "",
-        documents: list[Document] | None = None,
-        tools: list[dict[str, Any]] | None = None,
-        max_tokens: int = 4096,
-    ) -> LLMResponse:
+        system: str,
+        documents: list[Document] | None,
+        tools: list[dict[str, Any]] | None,
+        max_tokens: int,
+    ) -> dict[str, Any]:
         # Build kwargs so optional params are simply absent when unset; this also
         # keeps us clear of the SDK's precise TypedDict overloads for dict payloads.
         api_messages = _build_messages(messages, documents or [])
@@ -149,16 +150,66 @@ class AnthropicLLMClient(LLMClient):
                 kwargs["system"] = _cached_system(system)
             kwargs["tools"] = _cached_tools(tools)
             _cache_message_prefix(api_messages)
-        else:
-            if system:
-                kwargs["system"] = system
+        elif system:
+            kwargs["system"] = system
+        return kwargs
 
+    async def generate(
+        self,
+        *,
+        messages: list[Message],
+        system: str = "",
+        documents: list[Document] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        kwargs = self._request_kwargs(
+            messages=messages,
+            system=system,
+            documents=documents,
+            tools=tools,
+            max_tokens=max_tokens,
+        )
         try:
             response = await self._client.messages.create(**kwargs)
         except APIError as exc:
             raise ProviderError(f"Anthropic generation failed: {exc}") from exc
 
         return _parse_response(response)
+
+    async def generate_stream(
+        self,
+        *,
+        messages: list[Message],
+        on_text: OnText,
+        system: str = "",
+        documents: list[Document] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        """Stream text deltas through ``on_text``, then return the full response.
+
+        Citations and usage are parsed from the accumulated final message, so the
+        response object is byte-identical to the non-streaming path — citation
+        verification stays post-hoc and unchanged.
+        """
+        kwargs = self._request_kwargs(
+            messages=messages,
+            system=system,
+            documents=documents,
+            tools=tools,
+            max_tokens=max_tokens,
+        )
+        try:
+            async with self._client.messages.stream(**kwargs) as stream:
+                async for delta in stream.text_stream:
+                    if delta:
+                        await on_text(delta)
+                final = await stream.get_final_message()
+        except APIError as exc:
+            raise ProviderError(f"Anthropic streaming generation failed: {exc}") from exc
+
+        return _parse_response(final)
 
 
 def _parse_response(response: Any) -> LLMResponse:

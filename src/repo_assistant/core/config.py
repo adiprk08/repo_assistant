@@ -30,6 +30,9 @@ class Settings(BaseSettings):
 
     agent_tool_call_budget: int = 8
 
+    # API service
+    job_stream_poll_seconds: float = 1.0
+
 
 @lru_cache
 def get_settings() -> Settings:
