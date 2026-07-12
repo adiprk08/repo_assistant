@@ -362,6 +362,11 @@ async def test_health_is_open_without_auth(unauth_client: httpx.AsyncClient) -> 
     assert (await unauth_client.get("/health")).status_code == 200
 
 
+async def test_cors_allows_the_ui_origin(unauth_client: httpx.AsyncClient) -> None:
+    resp = await unauth_client.get("/health", headers={"Origin": "http://localhost:3000"})
+    assert resp.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
 async def test_missing_key_returns_401(unauth_client: httpx.AsyncClient) -> None:
     resp = await unauth_client.get("/repos")
     assert resp.status_code == 401

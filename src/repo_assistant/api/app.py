@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from repo_assistant.api.auth import secured
 from repo_assistant.api.errors import register_error_handlers
@@ -69,6 +70,18 @@ def create_app(
         lifespan=lifespan,
     )
     register_error_handlers(app)
+
+    # Browser UI runs on a different origin; allow it to call the API and read
+    # the streaming responses. Authorization is a header, so credentials aren't
+    # cookie-based — allow_credentials stays off.
+    if settings.cors_allow_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_allow_origins,
+            allow_methods=["*"],
+            allow_headers=["*"],
+            expose_headers=["Retry-After"],
+        )
 
     @app.get("/health", tags=["meta"])
     async def health() -> dict[str, str]:

@@ -2,6 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The repo-root .env, resolved from this file's location (…/src/repo_assistant/core/).
@@ -57,6 +58,17 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 120
     rate_limit_window_seconds: int = 60
+
+    # Browser UI origins allowed by CORS (comma-separated in the env var).
+    cors_allow_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+    @field_validator("cors_allow_origins", mode="before")
+    @classmethod
+    def _split_csv(cls, value: object) -> object:
+        # Accept a plain comma-separated env string as well as a JSON list.
+        if isinstance(value, str) and not value.strip().startswith("["):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
 
 
 @lru_cache

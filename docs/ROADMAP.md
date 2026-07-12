@@ -1,6 +1,6 @@
 # Roadmap
 
-> Status: **Phase 4 in progress** (updated 2026-07-12) — Phases 0–3 complete. Estimates assume focused part-time development with AI assistance; phases are sequential but each ships something usable.
+> Status: **Phase 5 next** (updated 2026-07-12) — Phases 0–4 complete. Estimates assume focused part-time development with AI assistance; phases are sequential but each ships something usable.
 
 ## Guiding principles
 
@@ -64,7 +64,7 @@
 
 **Exit-criteria outcome (honest):** trace/architecture retrieval targets (nDCG@10 ≥ 0.85, recall@5 ≥ 0.90) are **partially met** on the main set — architecture nDCG 0.86 (met), trace nDCG 0.75 (gap). The deeper finding: on that set the quality levers (graph ADR-0011, agent ADR-0012, descriptions ADR-0013) all measured net-neutral **because the symbol-named questions are already saturated** by hybrid+symbol retrieval. Building the NL-heavy **challenge set** (`evals/challenge/`, docs/EVALUATION.md §5) confirmed this and gave the levers a fair test: single-pass collapses there (nDCG 0.30), and the **agent path beats it (nDCG 0.37, recall@10 +10 pts)** — the first measured win, vindicating both the agent investment and the evaluation discipline. Remaining, carried forward: close the absolute gap on the challenge set, lift agent budget adherence (0.67 < 0.95), and broaden the challenge set to more repos. Phase 3 ships all its capabilities, each rigorously measured.
 
-## Phase 4 — Product surface (~2 weeks)
+## Phase 4 — Product surface (~2 weeks) — ✅ COMPLETE (2026-07-12)
 
 **Goal:** a usable product, not a CLI demo.
 
@@ -72,9 +72,11 @@
 - ✅ arq workers + staged ingestion jobs (job-row state machine, SSE-observable) — shipped; checkpointed auto-resume + concurrent-multi-repo validation carried to Phase 5 hardening
 - ✅ Conversation memory: snapshot-pinned sessions, incremental rolling summaries, follow-up condensation — shipped ([ADR-0015](adr/0015-conversation-memory.md)); a multi-turn eval set to measure condensation is owed
 - ✅ API-key auth + rate limiting — shipped ([ADR-0016](adr/0016-api-auth-and-rate-limiting.md)): hashed bearer keys (`ra apikey`), per-key Redis fixed-window limits
-- Minimal Next.js chat UI: repo picker, indexing progress, streaming chat with clickable citations (file viewer)
+- ✅ Minimal Next.js chat UI (`web/`, [ADR-0017](adr/0017-web-ui.md)): API-key gate, repo picker + register, SSE indexing progress, streaming chat with citations deep-linked to the pinned commit on GitHub
 
-**Exit criteria:** two repos ingest concurrently while chat stays responsive; full flow (register → watch progress → chat with citations) works in the browser.
+**Exit criteria:** full flow (register → watch progress → chat with citations) verified in the browser against a live indexed repo (grounded answer + 3 verified citations). Concurrent multi-repo ingestion + a formal responsiveness test carry into Phase 5 hardening alongside checkpointed auto-resume.
+
+**Deferred to Phase 5 (noted in the ADRs):** a multi-turn eval set to measure follow-up condensation ([ADR-0015](adr/0015-conversation-memory.md)); per-session chunk-ID re-expansion; a first-party in-app file viewer (content endpoint) beyond GitHub deep-links; per-key scopes/quotas + auth-failure metrics.
 
 ## Phase 5 — Production hardening (~2–3 weeks)
 

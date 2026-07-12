@@ -20,3 +20,4 @@ Format: Status / Context / Decision / Alternatives considered / Consequences. AD
 | [0014](0014-api-service-and-streaming.md) | API service surface; SSE progress via DB polling + chat token streaming via `on_text` | Accepted |
 | [0015](0015-conversation-memory.md) | Conversation memory: snapshot-pinned sessions, incremental rolling summary, follow-up condensation | Accepted |
 | [0016](0016-api-auth-and-rate-limiting.md) | API-key auth (hashed, DB-backed, bearer) + Redis fixed-window rate limiting (fail-open) | Accepted |
+| [0017](0017-web-ui.md) | Minimal Next.js web UI: SSE-over-fetch, localStorage key, GitHub deep-link citations | Accepted |

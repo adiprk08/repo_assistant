@@ -72,6 +72,8 @@ Two runtime processes share one library:
 
 Everything of substance lives in the `repo_assistant` Python package; API, worker, and CLI are thin shells (`create_app` composes one `Runtime` + one `IngestionQueue` for its lifetime; routers wrap a single library call each). This keeps every pipeline runnable and testable without infrastructure ([ADR-0001](adr/0001-language-and-stack.md)).
 
+- **Web UI** (`web/`, Next.js App Router — [ADR-0017](adr/0017-web-ui.md)): a thin client — API-key gate, repo picker + register, SSE indexing progress, and streaming chat with citations deep-linked to the pinned commit on GitHub. SSE is consumed via `fetch` + a stream reader (not `EventSource`, which can't send the bearer header). The API enables CORS for the UI origin (`cors_allow_origins`).
+
 ## 3. Repository layout and module responsibilities
 
 ```
@@ -95,14 +97,14 @@ repo_assistant/
 │   │                  # citation extraction + verification, conversation memory
 │   ├── storage/       # SQLAlchemy models + repositories, Alembic migrations,
 │   │                  # Qdrant client wrapper, Redis cache helpers
-│   ├── api/           # FastAPI app: routers, request/response schemas, SSE, auth middleware
+│   ├── api/           # FastAPI app: routers, request/response schemas, SSE, auth + rate-limit, CORS
 │   ├── workers/       # arq task definitions (thin wrappers over pipeline stages)
 │   └── cli/           # typer CLI (`ra index <url>`, `ra chat <repo>`, `ra eval ...`)
 ├── tests/             # unit + integration (testcontainers for Qdrant/Postgres/Redis)
 ├── evals/             # golden datasets, synthetic generation, judges, reports
 ├── infra/             # docker-compose.yml, Dockerfiles, deployment docs
 ├── docs/              # this documentation
-└── frontend/          # Next.js chat UI (Phase 4)
+└── web/               # Next.js chat UI (Phase 4) — thin client over the API
 ```
 
 Dependency rule: `api`/`workers`/`cli` → pipelines (`ingestion`…`reasoning`) → `storage`/`core`. Pipeline modules never import vendor SDKs directly; they use the interfaces in `core/`.
