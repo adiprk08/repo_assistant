@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from repo_assistant.chunking import chunk_code
 from repo_assistant.chunking.models import Chunk
 from repo_assistant.chunking.text import chunk_fallback, chunk_markdown
+from repo_assistant.core import metrics
 from repo_assistant.core.interfaces import Embedder, LLMClient, VectorIndex, VectorPoint
 from repo_assistant.core.logging import get_logger
 from repo_assistant.core.sparse import text_to_sparse
@@ -211,18 +212,22 @@ async def index_working_tree(
     session_factory = session_factory or make_session_factory_from_settings()
 
     await _notify(on_stage, "scanning")
-    scan_result = await scan(acquisition)
+    with metrics.timed_stage("scanning"):
+        scan_result = await scan(acquisition)
     await _notify(on_stage, "parsing", files=len(scan_result.files))
-    chunks, symbol_rows, contexts = await _build_units(acquisition, scan_result.files)
-    edges = extract_edges(contexts)
+    with metrics.timed_stage("parsing"):
+        chunks, symbol_rows, contexts = await _build_units(acquisition, scan_result.files)
+        edges = extract_edges(contexts)
 
     if enricher is not None:
         await _notify(on_stage, "enriching", chunks=len(chunks))
-        chunks = await enrich_chunks(enricher, chunks)
+        with metrics.timed_stage("enriching"):
+            chunks = await enrich_chunks(enricher, chunks)
 
     await _notify(on_stage, "embedding", chunks=len(chunks))
-    await vector_index.prepare(embedder.dimensions)
-    vectors = await embedder.embed([c.embed_text for c in chunks], input_type="document")
+    with metrics.timed_stage("embedding"):
+        await vector_index.prepare(embedder.dimensions)
+        vectors = await embedder.embed([c.embed_text for c in chunks], input_type="document")
 
     await _notify(
         on_stage, "indexing", chunks=len(chunks), symbols=len(symbol_rows), edges=len(edges)

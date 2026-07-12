@@ -6,10 +6,11 @@ library call. Streaming (SSE) is used for the two long/interactive surfaces —
 ingestion-job progress and chat — per docs/ARCHITECTURE.md §2.
 """
 
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from repo_assistant.api.auth import secured
@@ -17,8 +18,10 @@ from repo_assistant.api.errors import register_error_handlers
 from repo_assistant.api.ratelimit import NoopRateLimiter, RateLimiter, RedisRateLimiter
 from repo_assistant.api.routers import chat, repos, search, sessions, webhooks
 from repo_assistant.cli.runtime import Runtime, build_runtime
+from repo_assistant.core import metrics
 from repo_assistant.core.config import Settings, get_settings
 from repo_assistant.core.logging import configure_logging
+from repo_assistant.core.tracing import configure_tracing, instrument_app
 from repo_assistant.workers.queue import IngestionQueue
 
 
@@ -71,6 +74,27 @@ def create_app(
     )
     register_error_handlers(app)
 
+    if settings.metrics_enabled:
+        metrics.enable_metrics()
+
+        @app.middleware("http")
+        async def _metrics_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+            if request.url.path == "/metrics":
+                return await call_next(request)
+            start = time.perf_counter()
+            response = await call_next(request)
+            route = request.scope.get("route")
+            # Label by the route template (e.g. /repos/{repo_id}) to bound cardinality.
+            template = getattr(route, "path", None) or request.url.path
+            metrics.observe_http(
+                request.method, template, response.status_code, time.perf_counter() - start
+            )
+            return response
+
+    # Traces export over OTLP only when enabled; otherwise this is a no-op.
+    configure_tracing(settings)
+    instrument_app(app, settings)
+
     # Browser UI runs on a different origin; allow it to call the API and read
     # the streaming responses. Authorization is a header, so credentials aren't
     # cookie-based — allow_credentials stays off.
@@ -86,6 +110,11 @@ def create_app(
     @app.get("/health", tags=["meta"])
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/metrics", tags=["meta"], include_in_schema=False)
+    async def prometheus_metrics() -> Response:
+        body, content_type = metrics.render_latest()
+        return Response(content=body, media_type=content_type)
 
     # Every data route requires a valid API key + is rate-limited; /health stays open.
     protected = [Depends(secured)]

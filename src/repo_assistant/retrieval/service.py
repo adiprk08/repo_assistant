@@ -5,11 +5,13 @@ the repo's partition of the vector index. Hybrid channels, the symbol lookup, an
 reranking arrive in Phase 2 (docs/ROADMAP.md).
 """
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from repo_assistant.core import metrics
 from repo_assistant.core.interfaces import Embedder, Reranker, SearchResult, VectorIndex
 from repo_assistant.core.logging import get_logger
 from repo_assistant.core.sparse import text_to_sparse
@@ -122,6 +124,7 @@ async def hybrid_retrieve(
     if not query.strip():
         return []
 
+    start = time.perf_counter()
     filters = {"commit": commit} if commit else None
     (query_vector,) = await embedder.embed([query], input_type="query")
     dense_results = await vector_index.query(
@@ -166,6 +169,7 @@ async def hybrid_retrieve(
     else:
         chunks = chunks[:limit]
 
+    metrics.observe_retrieval("hybrid", time.perf_counter() - start)
     logger.info(
         "hybrid retrieved",
         repo_id=repo_id,

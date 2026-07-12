@@ -6,10 +6,12 @@ to a document (and thus to ``path:lines@commit`` after verification). Tool-use
 blocks are surfaced for the agentic reasoning path (Phase 3).
 """
 
+import time
 from typing import Any
 
 from anthropic import APIError, AsyncAnthropic
 
+from repo_assistant.core import metrics
 from repo_assistant.core.errors import ProviderError
 from repo_assistant.core.interfaces import (
     Citation,
@@ -23,6 +25,7 @@ from repo_assistant.core.interfaces import (
     Usage,
 )
 from repo_assistant.core.logging import get_logger
+from repo_assistant.core.tracing import span
 
 logger = get_logger(__name__)
 
@@ -170,12 +173,15 @@ class AnthropicLLMClient(LLMClient):
             tools=tools,
             max_tokens=max_tokens,
         )
-        try:
-            response = await self._client.messages.create(**kwargs)
-        except APIError as exc:
-            raise ProviderError(f"Anthropic generation failed: {exc}") from exc
-
-        return _parse_response(response)
+        with span("llm.generate", **{"llm.model": self._model}):
+            start = time.perf_counter()
+            try:
+                response = await self._client.messages.create(**kwargs)
+            except APIError as exc:
+                raise ProviderError(f"Anthropic generation failed: {exc}") from exc
+            parsed = _parse_response(response)
+            metrics.observe_llm(self._model, parsed.usage, time.perf_counter() - start)
+            return parsed
 
     async def generate_stream(
         self,
@@ -200,16 +206,19 @@ class AnthropicLLMClient(LLMClient):
             tools=tools,
             max_tokens=max_tokens,
         )
-        try:
-            async with self._client.messages.stream(**kwargs) as stream:
-                async for delta in stream.text_stream:
-                    if delta:
-                        await on_text(delta)
-                final = await stream.get_final_message()
-        except APIError as exc:
-            raise ProviderError(f"Anthropic streaming generation failed: {exc}") from exc
-
-        return _parse_response(final)
+        with span("llm.generate_stream", **{"llm.model": self._model}):
+            start = time.perf_counter()
+            try:
+                async with self._client.messages.stream(**kwargs) as stream:
+                    async for delta in stream.text_stream:
+                        if delta:
+                            await on_text(delta)
+                    final = await stream.get_final_message()
+            except APIError as exc:
+                raise ProviderError(f"Anthropic streaming generation failed: {exc}") from exc
+            parsed = _parse_response(final)
+            metrics.observe_llm(self._model, parsed.usage, time.perf_counter() - start)
+            return parsed
 
 
 def _parse_response(response: Any) -> LLMResponse:

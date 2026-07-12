@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # GitHub webhook HMAC secret (docs/adr/0018). Unset -> the webhook rejects all.
     github_webhook_secret: str | None = None
 
+    # Observability (docs/adr/0019)
+    metrics_enabled: bool = True  # Prometheus /metrics endpoint + instrumentation
+    otel_enabled: bool = False  # OTLP trace export (needs a collector/backend)
+    otel_exporter_endpoint: str = "http://localhost:4318"  # OTLP/HTTP base URL
+    otel_service_name: str = "repo-assistant"
+
     @field_validator("cors_allow_origins", mode="before")
     @classmethod
     def _split_csv(cls, value: object) -> object:

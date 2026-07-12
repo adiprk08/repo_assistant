@@ -6,6 +6,7 @@ multi-hop path and the intent router arrive in Phase 3 (docs/adr/0006).
 
 from dataclasses import dataclass, field
 
+from repo_assistant.core import metrics
 from repo_assistant.core.interfaces import (
     Document,
     Embedder,
@@ -87,6 +88,7 @@ async def generate_answer(
     dropped = len(response.citations) - len(citations)
     if dropped:
         logger.warning("dropped unverified citations", dropped=dropped, kept=len(citations))
+        metrics.observe_citation_drops(dropped)
 
     return Answer(
         text=response.text,

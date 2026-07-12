@@ -206,10 +206,12 @@ Mechanics: batched async embedding with backpressure; embedding cache makes re-i
 
 ## 11. Observability
 
+Implemented Phase 5 ([ADR-0019](adr/0019-observability.md)); OTLP-native so any backend works with no vendor SDK.
+
 - **Logging:** structlog JSON with request IDs and repo/session correlation.
-- **Tracing:** OpenTelemetry spans across pipeline stages (clone→…→answer); Langfuse (self-hosted) for LLM call traces, token usage, and cost per request/repo.
-- **Metrics:** Prometheus — ingestion durations per stage, retrieval latency percentiles, cache hit rates (embedding + prompt cache), token spend, error rates.
-- **Quality telemetry:** citation-verification failure rate and router disagreement rate are first-class metrics (leading indicators of quality regressions between eval runs).
+- **Tracing:** OpenTelemetry spans across pipeline stages (ingest stages, retrieval, LLM calls) exported over **OTLP/HTTP** to any collector — Jaeger, Tempo, or **Langfuse** (which ingests OTLP), so LLM-call traces with token/cost attributes land there without a Langfuse SDK. Config-gated (`otel_enabled`) and a no-op when off; FastAPI + httpx are auto-instrumented when on.
+- **Metrics:** Prometheus at `GET /metrics` — HTTP request count/latency by route, ingestion stage durations, retrieval latency, embedding-cache hit/miss, LLM token spend by model × kind (input/output/cache-read/cache-write) + call latency, and citation-verification drops. Emitted through no-op-when-disabled helpers in `core/metrics.py`.
+- **Quality telemetry:** citation-verification drop rate is a first-class metric (a leading indicator of quality regressions between eval runs). Router-disagreement rate is a follow-up (needs a reference decision to compare against).
 
 ## 12. Extensibility points
 

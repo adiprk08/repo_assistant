@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from repo_assistant.core import metrics
 from repo_assistant.core.interfaces import Embedder, InputType
 from repo_assistant.core.logging import get_logger
 from repo_assistant.storage.models import EmbeddingCache
@@ -95,10 +96,7 @@ class CachingEmbedder(Embedder):
             await self._store.put_many(model, dims, fresh)
             cached.update(fresh)
 
-        logger.info(
-            "embedding cache",
-            total=len(texts),
-            hits=len(texts) - len(miss_indices),
-            misses=len(miss_indices),
-        )
+        hits = len(texts) - len(miss_indices)
+        logger.info("embedding cache", total=len(texts), hits=hits, misses=len(miss_indices))
+        metrics.observe_cache(hits, len(miss_indices))
         return [cached[h] for h in hashes]

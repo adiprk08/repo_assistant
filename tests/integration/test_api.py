@@ -371,6 +371,16 @@ async def test_cors_allows_the_ui_origin(unauth_client: httpx.AsyncClient) -> No
     assert resp.headers["access-control-allow-origin"] == "http://localhost:3000"
 
 
+async def test_metrics_endpoint_exposes_prometheus(unauth_client: httpx.AsyncClient) -> None:
+    # A request flows through the timing middleware, then /metrics reflects it.
+    await unauth_client.get("/health")
+    resp = await unauth_client.get("/metrics")
+    assert resp.status_code == 200
+    assert "text/plain" in resp.headers["content-type"]
+    assert "ra_http_requests_total" in resp.text
+    assert 'route="/health"' in resp.text
+
+
 async def test_missing_key_returns_401(unauth_client: httpx.AsyncClient) -> None:
     resp = await unauth_client.get("/repos")
     assert resp.status_code == 401
