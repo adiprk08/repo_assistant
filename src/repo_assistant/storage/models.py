@@ -216,6 +216,24 @@ class ChatMessage(Base):
     __table_args__ = (Index("ix_chat_messages_session", "session_id", "seq"),)
 
 
+class ApiKey(Base):
+    """A bearer credential for the API (docs/adr/0016). Only the SHA-256 of the key
+    is stored — the plaintext is shown once at creation and never persisted. The
+    ``key_prefix`` is a non-secret label (first chars) for display and audit."""
+
+    __tablename__ = "api_keys"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    name: Mapped[str] = mapped_column(String)
+    key_prefix: Mapped[str] = mapped_column(String)
+    key_hash: Mapped[str] = mapped_column(String, unique=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    __table_args__ = (Index("ix_api_keys_hash", "key_hash"),)
+
+
 class EvalRun(Base):
     """One evaluation run, with the config snapshot so any two runs are diffable
     (docs/EVALUATION.md §4). ``overall`` holds the aggregated summary metrics."""

@@ -71,7 +71,7 @@
 - ✅ FastAPI service: repos CRUD, ingestion job status (SSE progress), chat completions (SSE streaming), search endpoint — shipped ([ADR-0014](adr/0014-api-service-and-streaming.md))
 - ✅ arq workers + staged ingestion jobs (job-row state machine, SSE-observable) — shipped; checkpointed auto-resume + concurrent-multi-repo validation carried to Phase 5 hardening
 - ✅ Conversation memory: snapshot-pinned sessions, incremental rolling summaries, follow-up condensation — shipped ([ADR-0015](adr/0015-conversation-memory.md)); a multi-turn eval set to measure condensation is owed
-- API-key auth + rate limiting
+- ✅ API-key auth + rate limiting — shipped ([ADR-0016](adr/0016-api-auth-and-rate-limiting.md)): hashed bearer keys (`ra apikey`), per-key Redis fixed-window limits
 - Minimal Next.js chat UI: repo picker, indexing progress, streaming chat with clickable citations (file viewer)
 
 **Exit criteria:** two repos ingest concurrently while chat stays responsive; full flow (register → watch progress → chat with citations) works in the browser.

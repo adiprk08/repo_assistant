@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     # API service
     job_stream_poll_seconds: float = 1.0
 
+    # Auth + rate limiting (docs/adr/0016)
+    require_api_key: bool = True
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 120
+    rate_limit_window_seconds: int = 60
+
 
 @lru_cache
 def get_settings() -> Settings:

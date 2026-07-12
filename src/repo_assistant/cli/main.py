@@ -72,6 +72,96 @@ def worker() -> None:
     run_worker(WorkerSettings)  # type: ignore[arg-type]
 
 
+apikey_app = typer.Typer(
+    name="apikey", help="Manage API keys for the service.", no_args_is_help=True
+)
+app.add_typer(apikey_app)
+
+
+@apikey_app.command("create")
+def apikey_create(name: str = typer.Argument(..., help="Human label for the key.")) -> None:
+    """Mint an API key. The secret is shown once here and never stored in plaintext."""
+    asyncio.run(_apikey_create(name))
+
+
+@apikey_app.command("list")
+def apikey_list() -> None:
+    """List API keys (prefixes only — the secrets are not recoverable)."""
+    asyncio.run(_apikey_list())
+
+
+@apikey_app.command("revoke")
+def apikey_revoke(key_id: str = typer.Argument(..., help="Key id (from `apikey list`).")) -> None:
+    """Revoke an API key so it can no longer authenticate."""
+    asyncio.run(_apikey_revoke(key_id))
+
+
+async def _apikey_create(name: str) -> None:
+    from repo_assistant.api.security import generate_api_key
+    from repo_assistant.cli.runtime import build_runtime
+    from repo_assistant.storage import repositories as repo
+
+    runtime = build_runtime()
+    generated = generate_api_key()
+    try:
+        async with runtime.session_factory() as session:
+            row = await repo.create_api_key(
+                session, name=name, key_prefix=generated.prefix, key_hash=generated.key_hash
+            )
+            await session.commit()
+            key_id = row.id
+    finally:
+        await runtime.aclose()
+    typer.secho(
+        "API key created. Copy it now — it will not be shown again.", fg=typer.colors.YELLOW
+    )
+    typer.echo(f"  id:   {key_id}")
+    typer.echo(f"  name: {name}")
+    typer.secho(f"  key:  {generated.plaintext}", fg=typer.colors.GREEN, bold=True)
+
+
+async def _apikey_list() -> None:
+    from repo_assistant.cli.runtime import build_runtime
+    from repo_assistant.storage import repositories as repo
+
+    runtime = build_runtime()
+    try:
+        async with runtime.session_factory() as session:
+            keys = await repo.list_api_keys(session)
+    finally:
+        await runtime.aclose()
+    if not keys:
+        typer.echo("No API keys. Create one with `ra apikey create <name>`.")
+        return
+    for k in keys:
+        status = "revoked" if k.revoked_at else "active"
+        last = k.last_used_at.isoformat(timespec="seconds") if k.last_used_at else "never"
+        typer.echo(f"  {k.id}  {k.key_prefix}…  {status:8} {k.name}  (last used: {last})")
+
+
+async def _apikey_revoke(key_id: str) -> None:
+    import uuid
+
+    from repo_assistant.cli.runtime import build_runtime
+    from repo_assistant.storage import repositories as repo
+
+    try:
+        parsed = uuid.UUID(key_id)
+    except ValueError as exc:
+        raise typer.Exit(code=_fail(f"Not a valid key id: {key_id}")) from exc
+    runtime = build_runtime()
+    try:
+        async with runtime.session_factory() as session:
+            revoked = await repo.revoke_api_key(session, parsed)
+            await session.commit()
+    finally:
+        await runtime.aclose()
+    if revoked:
+        typer.secho(f"Revoked {key_id}.", fg=typer.colors.GREEN)
+    else:
+        raise typer.Exit(code=_fail(f"No active key with id {key_id}."))
+
+
 @app.command()
 def eval(
     datasets_dir: str = typer.Option("evals/datasets", "--datasets", help="Golden dataset dir."),

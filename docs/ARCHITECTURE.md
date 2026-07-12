@@ -67,7 +67,7 @@ Two runtime processes share one library:
   - `POST /repos/{id}/search` — hybrid retrieval over the active snapshot (ranked path/span/score/excerpt).
   - `POST /repos/{id}/sessions`, `GET .../sessions`, `GET .../sessions/{sid}` — conversation sessions (each pinned to a snapshot) and their message history ([ADR-0015](adr/0015-conversation-memory.md)).
   - `POST /repos/{id}/chat` — routed, grounded answer **streamed over SSE** (`token` events, then a `done` event with verified citations + routing metadata). Pass `session_id` to make the turn conversational (pinned snapshot, prior turns, persisted); omit for a stateless one-off.
-  - `GET /health`. Domain errors ([core/errors](../src/repo_assistant/core/errors.py)) map to status codes centrally (NotFound→404, Ingestion→400, Validation→422, Provider→502).
+  - `GET /health` (unauthenticated). Every other route requires `Authorization: Bearer <api-key>` and is per-key rate-limited ([ADR-0016](adr/0016-api-auth-and-rate-limiting.md)). Domain errors ([core/errors](../src/repo_assistant/core/errors.py)) map to status codes centrally (NotFound→404, Ingestion→400, Validation→422, Auth→401, RateLimit→429, Provider→502).
 - **Worker** (arq): ingestion/indexing jobs, summary generation, incremental updates. The job row (`jobs`) is the state machine; each stage transition is persisted so the API's SSE endpoint streams progress by polling it.
 
 Everything of substance lives in the `repo_assistant` Python package; API, worker, and CLI are thin shells (`create_app` composes one `Runtime` + one `IngestionQueue` for its lifetime; routers wrap a single library call each). This keeps every pipeline runnable and testable without infrastructure ([ADR-0001](adr/0001-language-and-stack.md)).
@@ -199,7 +199,7 @@ Mechanics: batched async embedding with backpressure; embedding cache makes re-i
 - **Repo content is untrusted input** (prompt injection): content is fenced in clearly delimited blocks, the system prompt establishes that repository text carries no instructions, agent tools are read-only over the index, and citation verification bounds fabrication. No repo code is ever executed.
 - **Secrets hygiene:** `.env`-like files and high-entropy strings are excluded/redacted at scan time so they never enter the index or prompts.
 - **Private repos (Phase 5):** GitHub App with least-privilege installation tokens; tokens encrypted at rest (Fernet; KMS when cloud-deployed); never logged.
-- **Service:** API-key auth (OAuth later), per-key rate limits (Redis), strict input validation (pydantic), path-traversal-safe span reads, per-repo tenancy enforced at the storage layer (every query filters `repo_id`).
+- **Service:** API-key auth ([ADR-0016](adr/0016-api-auth-and-rate-limiting.md), implemented Phase 4) — bearer keys stored as SHA-256 hashes, minted/revoked via `ra apikey`, guarding every data route while `/health` stays open; OAuth is the later escalation. Per-key rate limits via a Redis fixed-window counter that fails open (429 + `Retry-After`). Strict input validation (pydantic), path-traversal-safe span reads, per-repo tenancy enforced at the storage layer (every query filters `repo_id`).
 
 ## 11. Observability
 

@@ -11,6 +11,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from repo_assistant.storage.models import (
+    ApiKey,
     ChatMessage,
     ChatSession,
     Chunk,
@@ -248,6 +249,38 @@ async def update_session_summary(
         .where(ChatSession.id == session_id)
         .values(summary=summary, summary_covered_messages=covered_messages)
     )
+
+
+async def create_api_key(
+    session: AsyncSession, *, name: str, key_prefix: str, key_hash: str
+) -> ApiKey:
+    api_key = ApiKey(name=name, key_prefix=key_prefix, key_hash=key_hash)
+    session.add(api_key)
+    await session.flush()
+    return api_key
+
+
+async def get_api_key_by_hash(session: AsyncSession, key_hash: str) -> ApiKey | None:
+    result = await session.execute(select(ApiKey).where(ApiKey.key_hash == key_hash))
+    return result.scalar_one_or_none()
+
+
+async def list_api_keys(session: AsyncSession) -> list[ApiKey]:
+    result = await session.execute(select(ApiKey).order_by(ApiKey.created_at.desc()))
+    return list(result.scalars())
+
+
+async def touch_api_key(session: AsyncSession, key_id: uuid.UUID) -> None:
+    await session.execute(update(ApiKey).where(ApiKey.id == key_id).values(last_used_at=_now()))
+
+
+async def revoke_api_key(session: AsyncSession, key_id: uuid.UUID) -> bool:
+    """Mark a key revoked. Returns False if it doesn't exist or was already revoked."""
+    api_key = await session.get(ApiKey, key_id)
+    if api_key is None or api_key.revoked_at is not None:
+        return False
+    api_key.revoked_at = _now()
+    return True
 
 
 def _now():

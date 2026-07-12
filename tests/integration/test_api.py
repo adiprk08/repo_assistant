@@ -14,11 +14,14 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from repo_assistant.api.app import create_app
+from repo_assistant.api.ratelimit import InMemoryRateLimiter, NoopRateLimiter, RateLimiter
+from repo_assistant.api.security import generate_api_key
 from repo_assistant.cli.runtime import Runtime
 from repo_assistant.core.config import get_settings
 from repo_assistant.core.fakes import FakeEmbedder, FakeLLMClient, FakeVectorIndex
 from repo_assistant.core.interfaces import Embedder, LLMClient, Reranker
 from repo_assistant.ingestion import models as ingestion_models
+from repo_assistant.storage import repositories as repo
 from repo_assistant.storage.db import make_engine, make_session_factory
 from repo_assistant.workers.ingestion import run_ingestion
 
@@ -74,17 +77,54 @@ def runtime() -> _FakeRuntime:
     return _FakeRuntime(session_factory=factory, embedder=FakeEmbedder(), llm=FakeLLMClient())
 
 
-@pytest_asyncio.fixture
-async def client(runtime: _FakeRuntime) -> AsyncIterator[tuple[httpx.AsyncClient, _FakeQueue]]:
-    queue = _FakeQueue()
+def _build_app(runtime: _FakeRuntime, queue: _FakeQueue, rate_limiter: RateLimiter):
+    """Create the app and wire app.state directly (ASGITransport skips the lifespan)."""
     app = create_app(runtime=runtime, queue=queue)  # type: ignore[arg-type]
-    # ASGITransport does not run the lifespan, so wire app.state directly.
     app.state.settings = runtime.settings
     app.state.runtime = runtime
     app.state.queue = queue
+    app.state.rate_limiter = rate_limiter
+    return app
+
+
+async def _mint_key(runtime: _FakeRuntime, *, revoked: bool = False) -> tuple[str, uuid.UUID]:
+    g = generate_api_key()
+    async with runtime.session_factory() as session:
+        row = await repo.create_api_key(
+            session, name="test", key_prefix=g.prefix, key_hash=g.key_hash
+        )
+        if revoked:
+            await repo.revoke_api_key(session, row.id)
+        await session.commit()
+        return g.plaintext, row.id
+
+
+async def _drop_key(runtime: _FakeRuntime, key_id: uuid.UUID) -> None:
+    from sqlalchemy import delete
+
+    from repo_assistant.storage.models import ApiKey
+
+    async with runtime.session_factory() as session:
+        await session.execute(delete(ApiKey).where(ApiKey.id == key_id))
+        await session.commit()
+
+
+@pytest_asyncio.fixture
+async def client(runtime: _FakeRuntime) -> AsyncIterator[tuple[httpx.AsyncClient, _FakeQueue]]:
+    """Authenticated client with rate limiting disabled — the default for endpoint tests."""
+    queue = _FakeQueue()
+    app = _build_app(runtime, queue, NoopRateLimiter())
+    plaintext, key_id = await _mint_key(runtime)
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c, queue
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {plaintext}"},
+    ) as c:
+        try:
+            yield c, queue
+        finally:
+            await _drop_key(runtime, key_id)
 
 
 async def _drive_worker(runtime: _FakeRuntime, monkeypatch, local_repo, job_id: uuid.UUID) -> None:
@@ -304,3 +344,61 @@ async def test_worker_marks_job_failed_on_pipeline_error(
         # Clean up so the shared DB doesn't accumulate this throwaway repo.
         await repo.delete_repo_rows(session, repo_id)
         await session.commit()
+
+
+# --- auth + rate limiting ---------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def unauth_client(runtime: _FakeRuntime) -> AsyncIterator[httpx.AsyncClient]:
+    """A client with no credentials and rate limiting off."""
+    app = _build_app(runtime, _FakeQueue(), NoopRateLimiter())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+async def test_health_is_open_without_auth(unauth_client: httpx.AsyncClient) -> None:
+    assert (await unauth_client.get("/health")).status_code == 200
+
+
+async def test_missing_key_returns_401(unauth_client: httpx.AsyncClient) -> None:
+    resp = await unauth_client.get("/repos")
+    assert resp.status_code == 401
+    assert resp.headers["www-authenticate"] == "Bearer"
+    assert resp.json()["error"] == "AuthenticationError"
+
+
+async def test_invalid_key_returns_401(unauth_client: httpx.AsyncClient) -> None:
+    resp = await unauth_client.get("/repos", headers={"Authorization": "Bearer ra_bogus"})
+    assert resp.status_code == 401
+
+
+async def test_revoked_key_returns_401(
+    unauth_client: httpx.AsyncClient, runtime: _FakeRuntime
+) -> None:
+    plaintext, key_id = await _mint_key(runtime, revoked=True)
+    try:
+        resp = await unauth_client.get("/repos", headers={"Authorization": f"Bearer {plaintext}"})
+        assert resp.status_code == 401
+    finally:
+        await _drop_key(runtime, key_id)
+
+
+async def test_rate_limit_returns_429(runtime: _FakeRuntime) -> None:
+    app = _build_app(runtime, _FakeQueue(), InMemoryRateLimiter(limit=2, window_seconds=60))
+    plaintext, key_id = await _mint_key(runtime)
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {plaintext}"},
+        ) as c:
+            assert (await c.get("/repos")).status_code == 200
+            assert (await c.get("/repos")).status_code == 200
+            limited = await c.get("/repos")  # third call is over budget
+            assert limited.status_code == 429
+            assert int(limited.headers["retry-after"]) >= 1
+    finally:
+        await _drop_key(runtime, key_id)

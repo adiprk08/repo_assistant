@@ -8,9 +8,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from repo_assistant.core.errors import (
+    AuthenticationError,
     IngestionError,
     NotFoundError,
     ProviderError,
+    RateLimitError,
     RepoAssistantError,
     ValidationError,
 )
@@ -23,6 +25,8 @@ _STATUS: list[tuple[type[RepoAssistantError], int]] = [
     (NotFoundError, 404),
     (ValidationError, 422),
     (IngestionError, 400),  # bad/again-untrusted repo URL is a client error
+    (AuthenticationError, 401),
+    (RateLimitError, 429),
     (ProviderError, 502),  # an upstream (LLM/embedder/Qdrant/Redis) failed
 ]
 
@@ -40,7 +44,13 @@ def register_error_handlers(app: FastAPI) -> None:
         status = _status_for(exc)
         if status >= 500:
             logger.error("unhandled domain error", path=request.url.path, error=str(exc))
+        headers: dict[str, str] = {}
+        if isinstance(exc, AuthenticationError):
+            headers["WWW-Authenticate"] = "Bearer"
+        elif isinstance(exc, RateLimitError):
+            headers["Retry-After"] = str(exc.retry_after)
         return JSONResponse(
             status_code=status,
             content={"error": type(exc).__name__, "detail": str(exc)},
+            headers=headers or None,
         )

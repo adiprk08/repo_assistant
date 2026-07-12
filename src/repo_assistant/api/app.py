@@ -9,9 +9,11 @@ ingestion-job progress and chat — per docs/ARCHITECTURE.md §2.
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
+from repo_assistant.api.auth import secured
 from repo_assistant.api.errors import register_error_handlers
+from repo_assistant.api.ratelimit import NoopRateLimiter, RateLimiter, RedisRateLimiter
 from repo_assistant.api.routers import chat, repos, search, sessions
 from repo_assistant.cli.runtime import Runtime, build_runtime
 from repo_assistant.core.config import Settings, get_settings
@@ -19,16 +21,28 @@ from repo_assistant.core.logging import configure_logging
 from repo_assistant.workers.queue import IngestionQueue
 
 
+def _default_rate_limiter(settings: Settings) -> RateLimiter:
+    if not settings.rate_limit_enabled:
+        return NoopRateLimiter()
+    return RedisRateLimiter(
+        settings.redis_dsn,
+        limit=settings.rate_limit_requests,
+        window_seconds=settings.rate_limit_window_seconds,
+    )
+
+
 def create_app(
     *,
     settings: Settings | None = None,
     runtime: Runtime | None = None,
     queue: IngestionQueue | None = None,
+    rate_limiter: RateLimiter | None = None,
 ) -> FastAPI:
     """Build the API app.
 
-    ``runtime``/``queue`` are injectable so tests can supply fakes; in production
-    they are composed from settings at startup and closed at shutdown.
+    ``runtime``/``queue``/``rate_limiter`` are injectable so tests can supply
+    fakes; in production they are composed from settings at startup and closed at
+    shutdown.
     """
     settings = settings or get_settings()
     owns_runtime = runtime is None
@@ -39,9 +53,11 @@ def create_app(
         app.state.settings = settings
         app.state.runtime = runtime or build_runtime(settings)
         app.state.queue = queue or IngestionQueue(settings.redis_dsn)
+        app.state.rate_limiter = rate_limiter or _default_rate_limiter(settings)
         try:
             yield
         finally:
+            await app.state.rate_limiter.aclose()
             await app.state.queue.aclose()
             if owns_runtime:
                 await app.state.runtime.aclose()
@@ -58,8 +74,10 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    app.include_router(repos.router)
-    app.include_router(sessions.router)
-    app.include_router(search.router)
-    app.include_router(chat.router)
+    # Every data route requires a valid API key + is rate-limited; /health stays open.
+    protected = [Depends(secured)]
+    app.include_router(repos.router, dependencies=protected)
+    app.include_router(sessions.router, dependencies=protected)
+    app.include_router(search.router, dependencies=protected)
+    app.include_router(chat.router, dependencies=protected)
     return app
