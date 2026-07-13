@@ -27,7 +27,24 @@ Every answer cites `file:line-range` at a pinned commit, and citations are verif
 
 ## Status
 
-**Phase 0 — architecture and planning complete; implementation starting.** See [docs/ROADMAP.md](docs/ROADMAP.md) for the phased plan.
+**Phases 0–5 complete** (vertical slice → retrieval quality → deep code understanding
+→ product surface → production hardening); Phase 6 (extensions) underway — an MCP
+server ships first. See [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Use it with an IDE agent (MCP)
+
+Index a repo, then expose its read-only code-navigation tools over the Model
+Context Protocol so Claude Desktop / Cursor can explore it ([ADR-0022](docs/adr/0022-mcp-server.md)):
+
+```jsonc
+// e.g. Claude Desktop mcpServers config
+{
+  "repo-assistant": {
+    "command": "uv",
+    "args": ["run", "ra", "mcp", "https://github.com/owner/repo"]
+  }
+}
+```
 
 ## Documentation
 
@@ -36,6 +53,9 @@ Every answer cites `file:line-range` at a pinned commit, and citations are verif
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, module responsibilities, data flow, data model, pipelines |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Phased roadmap with milestones and exit criteria |
 | [docs/EVALUATION.md](docs/EVALUATION.md) | Evaluation methodology, benchmarks, metrics, CI gates |
+| [docs/SCALE.md](docs/SCALE.md) | Scale validation: throughput, 50k projection, incremental proportionality |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Single-VM Docker deployment guide |
+| [SECURITY.md](SECURITY.md) | Trust boundaries: injection, secrets, service auth, dependency audit |
 | [docs/RISKS.md](docs/RISKS.md) | Risk register and mitigations |
 | [docs/adr/](docs/adr/README.md) | Architecture Decision Records — why each technology was chosen |
 

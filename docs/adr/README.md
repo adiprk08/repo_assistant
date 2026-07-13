@@ -25,3 +25,4 @@ Format: Status / Context / Decision / Alternatives considered / Consequences. AD
 | [0019](0019-observability.md) | Observability: OTLP-native OTel traces (Langfuse via OTLP, no vendor SDK) + Prometheus metrics | Accepted |
 | [0020](0020-private-repositories.md) | Private repos via a GitHub App; Fernet-encrypted installation tokens; authenticated clone | Accepted |
 | [0021](0021-security-pass.md) | Security pass: content secret scanning, read-only-agent injection posture (tested), pip-audit in CI | Accepted |
+| [0022](0022-mcp-server.md) | MCP server exposing the read-only index tools to IDE agents (stdio, one repo per launch) | Accepted |

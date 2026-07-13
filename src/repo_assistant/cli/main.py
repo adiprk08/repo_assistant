@@ -85,6 +85,19 @@ def worker() -> None:
     run_worker(WorkerSettings)  # type: ignore[arg-type]
 
 
+@app.command()
+def mcp(
+    repo: str = typer.Argument(..., help="Repository URL or id of an already-indexed repo."),
+) -> None:
+    """Serve the repo's read-only index tools over MCP (stdio) for IDE agents."""
+    from repo_assistant.mcp_server import serve
+
+    try:
+        asyncio.run(serve(repo))
+    except NotFoundError as exc:
+        raise typer.Exit(code=_fail(str(exc))) from exc
+
+
 apikey_app = typer.Typer(
     name="apikey", help="Manage API keys for the service.", no_args_is_help=True
 )

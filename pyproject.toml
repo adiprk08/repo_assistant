@@ -30,6 +30,7 @@ dependencies = [
   "opentelemetry-instrumentation-fastapi>=0.50b0",
   "opentelemetry-instrumentation-httpx>=0.50b0",
   "pyjwt[crypto]>=2.10",
+  "mcp>=1.28.1",
 ]
 
 [project.scripts]

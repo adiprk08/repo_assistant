@@ -93,7 +93,9 @@
 
 ## Phase 6 — Extensions (ongoing)
 
-Candidates, prioritized by demonstrated demand: multi-repo workspaces (cross-repo Q&A) · PR review mode (diff-aware retrieval) · documentation generation mode · commit-history/blame retrieval channel · Language Tier 3 (C/C++, C#, Ruby, PHP) · MCP server exposing retrieval tools to IDE agents · SCIP-based precise symbol resolution replacing heuristics.
+- ✅ **MCP server** ([ADR-0022](adr/0022-mcp-server.md)): `ra mcp <repo>` exposes the five read-only index tools over the Model Context Protocol (stdio) so IDE agents (Claude Desktop, Cursor) can explore an indexed repo — verified end-to-end with a real MCP client.
+
+Remaining candidates, prioritized by demonstrated demand: multi-repo workspaces (cross-repo Q&A) · PR review mode (diff-aware retrieval) · documentation generation mode · commit-history/blame retrieval channel · Language Tier 3 (C/C++, C#, Ruby, PHP) · SCIP-based precise symbol resolution replacing heuristics · (opt-in polish carried from Phases 4–5: GitHub App install-flow UI, Grafana dashboards, multi-turn condensation eval).
 
 ---
 

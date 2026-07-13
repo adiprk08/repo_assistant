@@ -1,12 +1,15 @@
 import logging
 import sys
+from typing import TextIO
 
 import structlog
 
 from repo_assistant.core.config import Settings
 
 
-def configure_logging(settings: Settings) -> None:
+def configure_logging(settings: Settings, *, stream: TextIO | None = None) -> None:
+    """Configure structlog. ``stream`` defaults to stdout; pass ``sys.stderr`` for
+    the MCP server, whose stdout must carry only the JSON-RPC protocol (ADR-0022)."""
     renderer: structlog.typing.Processor = (
         structlog.processors.JSONRenderer()
         if settings.log_format == "json"
@@ -25,7 +28,7 @@ def configure_logging(settings: Settings) -> None:
         wrapper_class=structlog.make_filtering_bound_logger(
             logging.getLevelNamesMapping().get(settings.log_level.upper(), logging.INFO)
         ),
-        logger_factory=structlog.PrintLoggerFactory(sys.stdout),
+        logger_factory=structlog.PrintLoggerFactory(stream or sys.stdout),
         cache_logger_on_first_use=True,
     )
 
