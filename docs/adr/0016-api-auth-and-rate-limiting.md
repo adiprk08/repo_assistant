@@ -1,6 +1,6 @@
 # ADR-0016: API-key authentication and rate limiting
 
-**Status:** Accepted (2026-07-12)
+**Status:** Accepted (2026-07-12); **amended by [ADR-0023](0023-web-auth-and-user-accounts.md)** (2026-07-14) — API keys are now user-scoped personal access tokens, `require_api_key` became `require_auth`, and rate limiting keys off the user id. The hashing, bearer transport, and fail-open limiter below are unchanged.
 
 ## Context
 

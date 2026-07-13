@@ -1,6 +1,6 @@
 # ADR-0017: Minimal Next.js web UI
 
-**Status:** Accepted (2026-07-12)
+**Status:** Accepted (2026-07-12); **amended by [ADR-0023](0023-web-auth-and-user-accounts.md)** (2026-07-14) — the `localStorage` API-key gate is replaced by GitHub OAuth sign-in with a first-party session cookie, and the browser talks to a same-origin `/api/*` proxy instead of the API's origin directly. The SSE-over-fetch and GitHub-deep-link-citation decisions below stand.
 
 ## Context
 

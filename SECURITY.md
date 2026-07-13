@@ -2,6 +2,7 @@
 
 How Repo Assistant defends its trust boundaries. Design rationale lives in
 [docs/adr/0021](docs/adr/0021-security-pass.md), [docs/adr/0016](docs/adr/0016-api-auth-and-rate-limiting.md),
+[docs/adr/0023](docs/adr/0023-web-auth-and-user-accounts.md),
 [docs/adr/0020](docs/adr/0020-private-repositories.md), and [docs/RISKS.md](docs/RISKS.md).
 
 ## Untrusted repository content (prompt injection)
@@ -31,10 +32,20 @@ Credentials must never enter the index or a prompt:
 
 ## Service
 
-- Every data route requires an API key (SHA-256-hashed, revocable) and is
-  per-key rate-limited ([ADR-0016](docs/adr/0016-api-auth-and-rate-limiting.md)).
-- The GitHub webhook is HMAC-signature-verified, not API-key-authed.
-- Per-repo tenancy is enforced at the storage layer (every query filters `repo_id`).
+- Every data route requires an authenticated **user**, resolved from a **session
+  cookie** or a personal-access-token **API key** (both SHA-256-hashed at rest,
+  revocable), and is per-user rate-limited ([ADR-0016](docs/adr/0016-api-auth-and-rate-limiting.md),
+  [ADR-0023](docs/adr/0023-web-auth-and-user-accounts.md)).
+- **Per-user ownership**: a user sees only repos in their library and their own
+  chat sessions; cross-user access is denied as **404** (existence is never
+  leaked). Per-repo tenancy is still enforced at the storage layer (queries filter
+  `repo_id`).
+- **Web sessions** are server-side and revocable — the cookie holds an opaque
+  token, only its SHA-256 is stored, and it is `httpOnly` + `SameSite=Lax`. The
+  browser is same-origin (Next proxies `/api/*`), so the cookie is first-party.
+- **CSRF**: login uses an OAuth `state` double-submit; cookie-authenticated
+  unsafe-method requests are Origin-checked (bearer-key callers carry no cookie).
+- The GitHub webhook is HMAC-signature-verified, not user-authed.
 
 ## Dependencies
 

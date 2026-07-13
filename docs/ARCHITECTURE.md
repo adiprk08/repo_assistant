@@ -67,13 +67,14 @@ Two runtime processes share one library:
   - `POST /repos/{id}/search` — hybrid retrieval over the active snapshot (ranked path/span/score/excerpt).
   - `POST /repos/{id}/sessions`, `GET .../sessions`, `GET .../sessions/{sid}` — conversation sessions (each pinned to a snapshot) and their message history ([ADR-0015](adr/0015-conversation-memory.md)).
   - `POST /repos/{id}/chat` — routed, grounded answer **streamed over SSE** (`token` events, then a `done` event with verified citations + routing metadata). Pass `session_id` to make the turn conversational (pinned snapshot, prior turns, persisted); omit for a stateless one-off.
-  - `POST /webhooks/github` — GitHub push webhook; **HMAC-signature-gated** (not API-key auth), enqueues an incremental re-index ([ADR-0018](adr/0018-incremental-indexing.md)).
-  - `GET /health` (unauthenticated). Every other route (except the signature-gated webhook) requires `Authorization: Bearer <api-key>` and is per-key rate-limited ([ADR-0016](adr/0016-api-auth-and-rate-limiting.md)). Domain errors ([core/errors](../src/repo_assistant/core/errors.py)) map to status codes centrally (NotFound→404, Ingestion→400, Validation→422, Auth→401, RateLimit→429, Provider→502).
+  - `POST /webhooks/github` — GitHub push webhook; **HMAC-signature-gated** (not user auth), enqueues an incremental re-index ([ADR-0018](adr/0018-incremental-indexing.md)).
+  - `GET /auth/github/login` → `GET /auth/github/callback` — GitHub OAuth sign-in; `POST /auth/logout`; `GET /auth/me` ([ADR-0023](adr/0023-web-auth-and-user-accounts.md)).
+  - `GET /health` (unauthenticated). Every other route (except the signature-gated webhook and the login endpoints) requires an authenticated **user** — resolved from a **session cookie** (browser) or an `Authorization: Bearer <key>` personal access token (CLI/scripts) — and is per-user rate-limited ([ADR-0016](adr/0016-api-auth-and-rate-limiting.md), [ADR-0023](adr/0023-web-auth-and-user-accounts.md)). Repos and sessions are **owned**: a user sees only their library (`user_repos`) and their own sessions; cross-user access is denied as 404. Domain errors ([core/errors](../src/repo_assistant/core/errors.py)) map to status codes centrally (NotFound→404, Ingestion→400, Validation→422, Auth→401, RateLimit→429, Provider→502).
 - **Worker** (arq): ingestion/indexing jobs, summary generation, incremental updates. The job row (`jobs`) is the state machine; each stage transition is persisted so the API's SSE endpoint streams progress by polling it.
 
 Everything of substance lives in the `repo_assistant` Python package; API, worker, and CLI are thin shells (`create_app` composes one `Runtime` + one `IngestionQueue` for its lifetime; routers wrap a single library call each). This keeps every pipeline runnable and testable without infrastructure ([ADR-0001](adr/0001-language-and-stack.md)).
 
-- **Web UI** (`web/`, Next.js App Router — [ADR-0017](adr/0017-web-ui.md)): a thin client — API-key gate, repo picker + register, SSE indexing progress, and streaming chat with citations deep-linked to the pinned commit on GitHub. SSE is consumed via `fetch` + a stream reader (not `EventSource`, which can't send the bearer header). The API enables CORS for the UI origin (`cors_allow_origins`).
+- **Web UI** (`web/`, Next.js App Router — [ADR-0017](adr/0017-web-ui.md), auth [ADR-0023](adr/0023-web-auth-and-user-accounts.md)): a thin client — **Sign in with GitHub**, repo picker + register, SSE indexing progress, and streaming chat with citations deep-linked to the pinned commit on GitHub. Auth is **cookie-based**: the browser calls `/api/*` on its own origin and Next proxies that to the API server-side, so the session cookie is first-party (no bearer key in the browser). SSE is consumed via `fetch` + a stream reader (not `EventSource`).
 
 ## 3. Repository layout and module responsibilities
 
@@ -174,8 +175,13 @@ Two tiers behind an intent router ([ADR-0006](adr/0006-reasoning-pipeline.md)). 
 | `edges` | src/dst (symbol or file), kind (`contains/imports/calls/inherits/references`), confidence |
 | `chunks` | chunk_id ↔ Qdrant point, file, span, kind, content_hash |
 | `summaries` | scope (`file/dir/repo`), path, content, source_hash (staleness detection) |
-| `chat_sessions` / `chat_messages` | session ↔ snapshot binding; messages with citations JSONB, token usage |
+| `chat_sessions` / `chat_messages` | session ↔ snapshot binding + owner (`user_id`); messages with citations JSONB, token usage |
 | `jobs` | type, stage, state, progress, error, checkpoints |
+| `users` | account: `github_id` (unique), login, name, avatar ([ADR-0023](adr/0023-web-auth-and-user-accounts.md)) |
+| `web_sessions` | browser session: SHA-256 of the opaque cookie token, owner, expiry (revocable) |
+| `user_repos` | per-user library membership over the shared repo index (`(user_id, repo_id)`) |
+| `api_keys` | personal access tokens: SHA-256 hash, prefix, owner (`user_id`), last-used/revoked ([ADR-0016](adr/0016-api-auth-and-rate-limiting.md)) |
+| `github_installations` | GitHub App installation ↔ Fernet-encrypted token cache ([ADR-0020](adr/0020-private-repositories.md)) |
 | `eval_runs` / `eval_results` | see [EVALUATION.md](EVALUATION.md) |
 
 **Qdrant** — single collection, named vectors `dense` (voyage-code-3) + `sparse` (BM25 via Qdrant IDF-modifier sparse vectors, dependency-free code-aware tokenizer); payload: `repo_id` (tenant key, indexed), `path`, `language`, `category`, `symbol`, `start_line`, `end_line`, `commit`, and the chunk `text` itself (so retrieval returns citable content without a second round-trip). Payload-partitioned multitenancy ([ADR-0009](adr/0009-multitenancy-and-versioning.md)); scalar int8 quantization enabled once collections grow. Point IDs are `uuid5(snapshot, path, index)` so re-indexing upserts are idempotent, and equal the `chunks.id` bookkeeping row.

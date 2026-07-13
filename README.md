@@ -29,7 +29,8 @@ Every answer cites `file:line-range` at a pinned commit, and citations are verif
 
 **Phases 0–5 complete** (vertical slice → retrieval quality → deep code understanding
 → product surface → production hardening); Phase 6 (extensions) underway — an MCP
-server ships first. See [docs/ROADMAP.md](docs/ROADMAP.md).
+server and **GitHub-OAuth user accounts** (per-user private libraries over the shared
+index) have shipped. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Use it with an IDE agent (MCP)
 

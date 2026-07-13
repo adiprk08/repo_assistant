@@ -19,10 +19,11 @@ Format: Status / Context / Decision / Alternatives considered / Consequences. AD
 | [0013](0013-contextual-descriptions-opt-in.md) | Contextual chunk descriptions opt-in (measured no retrieval lift); summary hierarchy deferred | Accepted |
 | [0014](0014-api-service-and-streaming.md) | API service surface; SSE progress via DB polling + chat token streaming via `on_text` | Accepted |
 | [0015](0015-conversation-memory.md) | Conversation memory: snapshot-pinned sessions, incremental rolling summary, follow-up condensation | Accepted |
-| [0016](0016-api-auth-and-rate-limiting.md) | API-key auth (hashed, DB-backed, bearer) + Redis fixed-window rate limiting (fail-open) | Accepted |
-| [0017](0017-web-ui.md) | Minimal Next.js web UI: SSE-over-fetch, localStorage key, GitHub deep-link citations | Accepted |
+| [0016](0016-api-auth-and-rate-limiting.md) | API-key auth (hashed, DB-backed, bearer) + Redis fixed-window rate limiting (fail-open) | Accepted (amended by 0023) |
+| [0017](0017-web-ui.md) | Minimal Next.js web UI: SSE-over-fetch, localStorage key, GitHub deep-link citations | Accepted (amended by 0023) |
 | [0018](0018-incremental-indexing.md) | Incremental indexing: content-hash diff, copy-forward unchanged, HMAC webhook trigger | Accepted |
 | [0019](0019-observability.md) | Observability: OTLP-native OTel traces (Langfuse via OTLP, no vendor SDK) + Prometheus metrics | Accepted |
 | [0020](0020-private-repositories.md) | Private repos via a GitHub App; Fernet-encrypted installation tokens; authenticated clone | Accepted |
 | [0021](0021-security-pass.md) | Security pass: content secret scanning, read-only-agent injection posture (tested), pip-audit in CI | Accepted |
 | [0022](0022-mcp-server.md) | MCP server exposing the read-only index tools to IDE agents (stdio, one repo per launch) | Accepted |
+| [0023](0023-web-auth-and-user-accounts.md) | Web auth: GitHub OAuth, server-side cookie sessions, per-user library over the shared index, same-origin proxy | Accepted |
