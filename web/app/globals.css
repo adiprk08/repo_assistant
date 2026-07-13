@@ -179,7 +179,12 @@ code,
   display: flex;
   flex-direction: column;
   gap: 14px;
-  margin-bottom: 16px;
+  /* The only scrollable region in the chat panel: fill remaining height and
+     scroll internally instead of growing the page. min-height:0 lets a flex
+     child shrink below its content so overflow actually kicks in. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 .msg {
   padding: 12px 14px;

@@ -31,7 +31,7 @@ export function Chat({
   const [path, setPath] = useState<"auto" | "fast" | "agent">("auto");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   // A fresh session (pinned to the repo's current snapshot) per repo selection.
   useEffect(() => {
@@ -48,7 +48,10 @@ export function Chat({
   }, [repo.id, onAuthError]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Keep the newest turn in view by scrolling the messages pane itself, not
+    // the page.
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [turns]);
 
   async function send(e: React.FormEvent) {
@@ -102,7 +105,7 @@ export function Chat({
   const ready = repo.status === "ready";
 
   return (
-    <div className="panel col" style={{ minHeight: "70vh" }}>
+    <div className="panel col" style={{ height: "calc(100vh - 48px)" }}>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h2 style={{ margin: 0, fontSize: 16 }}>
           {repo.url.replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "")}
@@ -114,7 +117,7 @@ export function Chat({
         </select>
       </div>
 
-      <div className="messages" style={{ flex: 1 }}>
+      <div className="messages" ref={listRef}>
         {turns.length === 0 && (
           <p className="muted small">
             {ready ? "Ask a question about this repository." : "This repo is not indexed yet."}
@@ -139,7 +142,6 @@ export function Chat({
             ))}
           </div>
         ))}
-        <div ref={bottomRef} />
       </div>
 
       {error && <div className="banner small">{error}</div>}
