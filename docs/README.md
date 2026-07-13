@@ -8,6 +8,7 @@ This directory is the living design record of Repo Assistant. **It must always r
 | [ROADMAP.md](ROADMAP.md) | Phased plan, milestones, exit criteria, implementation priorities | Phase transitions, scope changes |
 | [EVALUATION.md](EVALUATION.md) | Evaluation methodology, datasets, metrics, CI gates | Any change to how quality is measured |
 | [RISKS.md](RISKS.md) | Risk register with likelihood/impact/mitigation | New risks discovered, mitigations landed |
+| [UAT.md](UAT.md) | Manual user acceptance test plan covering every working flow, with pass criteria | New user-facing flow ships, or an existing flow's surface changes |
 | [adr/](adr/README.md) | Architecture Decision Records | New significant decision, or superseding an old one |
 
 ## ADR policy

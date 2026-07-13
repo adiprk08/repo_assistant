@@ -53,6 +53,7 @@ Context Protocol so Claude Desktop / Cursor can explore it ([ADR-0022](docs/adr/
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, module responsibilities, data flow, data model, pipelines |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Phased roadmap with milestones and exit criteria |
 | [docs/EVALUATION.md](docs/EVALUATION.md) | Evaluation methodology, benchmarks, metrics, CI gates |
+| [docs/UAT.md](docs/UAT.md) | Manual user acceptance test plan for every working flow |
 | [docs/SCALE.md](docs/SCALE.md) | Scale validation: throughput, 50k projection, incremental proportionality |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Single-VM Docker deployment guide |
 | [SECURITY.md](SECURITY.md) | Trust boundaries: injection, secrets, service auth, dependency audit |
