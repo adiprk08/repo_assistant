@@ -53,8 +53,9 @@ class Settings(BaseSettings):
     # API service
     job_stream_poll_seconds: float = 1.0
 
-    # Auth + rate limiting (docs/adr/0016)
-    require_api_key: bool = True
+    # Auth + rate limiting (docs/adr/0016, docs/adr/0023)
+    # When off, the API runs open as the singleton 'local' user (dev convenience).
+    require_auth: bool = True
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 120
     rate_limit_window_seconds: int = 60

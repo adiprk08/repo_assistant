@@ -131,8 +131,15 @@ async def _apikey_create(name: str) -> None:
     generated = generate_api_key()
     try:
         async with runtime.session_factory() as session:
+            # CLI-minted keys belong to the 'local' user (docs/adr/0023): they act
+            # as that account against the HTTP API.
+            local_user = await repo.get_or_create_local_user(session)
             row = await repo.create_api_key(
-                session, name=name, key_prefix=generated.prefix, key_hash=generated.key_hash
+                session,
+                name=name,
+                key_prefix=generated.prefix,
+                key_hash=generated.key_hash,
+                user_id=local_user.id,
             )
             await session.commit()
             key_id = row.id

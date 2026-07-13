@@ -45,6 +45,54 @@ class Repo(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
+class User(Base):
+    """An authenticated account (docs/adr/0023).
+
+    GitHub-backed users have ``github_id`` set (created on OAuth login); the
+    ``local`` user (``github_id`` NULL) owns CLI-minted keys and everything in a
+    ``require_auth``-off dev instance. ``login`` is the display handle and is unique."""
+
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    github_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
+    login: Mapped[str] = mapped_column(String, unique=True)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class WebSession(Base):
+    """A server-side browser session (docs/adr/0023). The cookie carries an opaque
+    token; only its SHA-256 is stored, so a DB leak yields no live sessions. Rows
+    past ``expires_at`` are treated as invalid (and swept)."""
+
+    __tablename__ = "web_sessions"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    token_hash: Mapped[str] = mapped_column(String, unique=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column()
+
+    __table_args__ = (Index("ix_web_sessions_token", "token_hash"),)
+
+
+class UserRepo(Base):
+    """Membership of a repo in a user's library (docs/adr/0023). The heavy index
+    (snapshots/chunks/vectors) is shared and deduplicated by repo+commit; this join
+    is what scopes each user to the repos they added — a public repo already indexed
+    is added to a new user's library instantly, with no re-index."""
+
+    __tablename__ = "user_repos"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    repo_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("repos.id"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+    __table_args__ = (Index("ix_user_repos_repo", "repo_id"),)
+
+
 class Snapshot(Base):
     """A single indexed commit of a repo. Every chunk/symbol/edge/summary row is
     scoped to one snapshot (see docs/adr/0009-multitenancy-and-versioning.md)."""
@@ -179,12 +227,14 @@ class ChatSession(Base):
     Pinning ``snapshot_id``/``commit_sha`` keeps the whole conversation answered
     against a single consistent commit even if the repo re-indexes mid-session
     (docs/adr/0006, docs/adr/0015). ``summary`` holds the rolling condensation of
-    turns that have aged out of the verbatim window."""
+    turns that have aged out of the verbatim window. ``user_id`` is the owner —
+    sessions are personal (docs/adr/0023); nullable only for pre-auth legacy rows."""
 
     __tablename__ = "chat_sessions"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     repo_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("repos.id"))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     snapshot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("snapshots.id"))
     commit_sha: Mapped[str] = mapped_column(String)
     title: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -195,7 +245,10 @@ class ChatSession(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (Index("ix_chat_sessions_repo", "repo_id"),)
+    __table_args__ = (
+        Index("ix_chat_sessions_repo", "repo_id"),
+        Index("ix_chat_sessions_user_repo", "user_id", "repo_id"),
+    )
 
 
 class ChatMessage(Base):
@@ -226,6 +279,9 @@ class ApiKey(Base):
     __tablename__ = "api_keys"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
+    # Owning user: keys are personal access tokens (docs/adr/0023). Nullable only
+    # for pre-auth legacy rows; new keys always carry an owner.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     name: Mapped[str] = mapped_column(String)
     key_prefix: Mapped[str] = mapped_column(String)
     key_hash: Mapped[str] = mapped_column(String, unique=True)

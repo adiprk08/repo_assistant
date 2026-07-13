@@ -92,10 +92,16 @@ def _build_app(runtime: _FakeRuntime, queue: _FakeQueue, rate_limiter: RateLimit
 
 
 async def _mint_key(runtime: _FakeRuntime, *, revoked: bool = False) -> tuple[str, uuid.UUID]:
+    """Mint a key bound to a fresh user (keys are personal now — docs/adr/0023)."""
     g = generate_api_key()
     async with runtime.session_factory() as session:
+        from repo_assistant.storage.models import User
+
+        user = User(login=f"test-{uuid.uuid4().hex[:8]}", name="Test")
+        session.add(user)
+        await session.flush()
         row = await repo.create_api_key(
-            session, name="test", key_prefix=g.prefix, key_hash=g.key_hash
+            session, name="test", key_prefix=g.prefix, key_hash=g.key_hash, user_id=user.id
         )
         if revoked:
             await repo.revoke_api_key(session, row.id)
@@ -104,12 +110,32 @@ async def _mint_key(runtime: _FakeRuntime, *, revoked: bool = False) -> tuple[st
 
 
 async def _drop_key(runtime: _FakeRuntime, key_id: uuid.UUID) -> None:
-    from sqlalchemy import delete
+    from sqlalchemy import delete, select
 
-    from repo_assistant.storage.models import ApiKey
+    from repo_assistant.storage.models import ApiKey, ChatMessage, ChatSession, User, UserRepo
 
     async with runtime.session_factory() as session:
+        key = await session.get(ApiKey, key_id)
+        user_id = key.user_id if key is not None else None
         await session.execute(delete(ApiKey).where(ApiKey.id == key_id))
+        if user_id is not None:
+            # FK-safe teardown: messages -> sessions -> memberships -> user.
+            sess_ids = (
+                (
+                    await session.execute(
+                        select(ChatSession.id).where(ChatSession.user_id == user_id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if sess_ids:
+                await session.execute(
+                    delete(ChatMessage).where(ChatMessage.session_id.in_(sess_ids))
+                )
+                await session.execute(delete(ChatSession).where(ChatSession.user_id == user_id))
+            await session.execute(delete(UserRepo).where(UserRepo.user_id == user_id))
+            await session.execute(delete(User).where(User.id == user_id))
         await session.commit()
 
 
@@ -474,6 +500,68 @@ async def test_webhook_ignores_unregistered_repo(
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "ignored"
+
+
+async def test_repos_and_sessions_are_isolated_per_user(
+    runtime: _FakeRuntime, local_repo, monkeypatch
+) -> None:
+    """User B can neither see nor touch user A's library repo or A's sessions
+    (docs/adr/0023). Denials read as 404 so existence never leaks."""
+    app = _build_app(runtime, _FakeQueue(), NoopRateLimiter())
+    key_a, id_a = await _mint_key(runtime)
+    key_b, id_b = await _mint_key(runtime)
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with (
+            httpx.AsyncClient(
+                transport=transport,
+                base_url="http://test",
+                headers={"Authorization": f"Bearer {key_a}"},
+            ) as a,
+            httpx.AsyncClient(
+                transport=transport,
+                base_url="http://test",
+                headers={"Authorization": f"Bearer {key_b}"},
+            ) as b,
+        ):
+            # A registers + indexes a repo -> it's in A's library.
+            resp = await a.post("/repos", json={"url": local_repo.url})
+            body = resp.json()
+            repo_id = body["repo"]["id"]
+            await _drive_worker(runtime, monkeypatch, local_repo, uuid.UUID(body["job"]["id"]))
+
+            # A sees it; B does not.
+            assert any(r["id"] == repo_id for r in (await a.get("/repos")).json())
+            assert all(r["id"] != repo_id for r in (await b.get("/repos")).json())
+
+            # Every repo-scoped route is 404 for B.
+            assert (await b.get(f"/repos/{repo_id}")).status_code == 404
+            assert (
+                await b.post(f"/repos/{repo_id}/search", json={"query": "x"})
+            ).status_code == 404
+            assert (await b.post(f"/repos/{repo_id}/sessions", json={})).status_code == 404
+            assert (
+                await b.post(f"/repos/{repo_id}/chat", json={"question": "hi", "path": "fast"})
+            ).status_code == 404
+
+            # A's session is invisible to B.
+            sid = (await a.post(f"/repos/{repo_id}/sessions", json={})).json()["id"]
+            assert (await a.get(f"/repos/{repo_id}/sessions/{sid}")).status_code == 200
+            assert (await b.get(f"/repos/{repo_id}/sessions/{sid}")).status_code == 404
+
+            # B can add the same repo to their library instantly (shared index) and
+            # then it resolves for B — but B still can't see A's session.
+            assert (await b.post("/repos", json={"url": local_repo.url})).status_code == 202
+            assert (await b.get(f"/repos/{repo_id}")).status_code == 200
+            assert (await b.get(f"/repos/{repo_id}/sessions/{sid}")).status_code == 404
+
+            # A leaving doesn't tear down the index while B still holds it.
+            assert (await a.delete(f"/repos/{repo_id}")).status_code == 204
+            assert (await b.get(f"/repos/{repo_id}")).status_code == 200
+            assert (await b.delete(f"/repos/{repo_id}")).status_code == 204
+    finally:
+        await _drop_key(runtime, id_a)
+        await _drop_key(runtime, id_b)
 
 
 async def test_rate_limit_returns_429(runtime: _FakeRuntime) -> None:

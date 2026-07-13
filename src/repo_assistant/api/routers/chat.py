@@ -18,6 +18,7 @@ from typing import cast
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
+from repo_assistant.api.auth import CurrentUser
 from repo_assistant.api.deps import RuntimeDep
 from repo_assistant.api.schemas import ChatRequest, CitationOut
 from repo_assistant.api.sse import SSE_HEADERS, SSE_MEDIA_TYPE, sse_event
@@ -34,18 +35,20 @@ router = APIRouter(prefix="/repos", tags=["chat"])
 
 @router.post("/{repo_id}/chat")
 async def chat_repo(
-    repo_id: uuid.UUID, body: ChatRequest, runtime: RuntimeDep
+    repo_id: uuid.UUID, body: ChatRequest, runtime: RuntimeDep, user: CurrentUser
 ) -> StreamingResponse:
     force_path: Path | None = None if body.path == "auto" else cast(Path, body.path)
 
     # Resolve the target snapshot before streaming so a missing/unindexed repo or
-    # session is a real HTTP error, not an SSE event after headers are sent.
+    # session is a real HTTP error, not an SSE event after headers are sent. Access
+    # is guarded here too: the session must belong to the caller, and a stateless
+    # turn requires library membership on the repo (docs/adr/0023).
     history: list[Message] | None = None
     retrieval_query: str | None = None
     if body.session_id is not None:
         async with runtime.session_factory() as session:
             chat = await repo.get_session(session, body.session_id)
-            if chat is None or chat.repo_id != repo_id:
+            if chat is None or chat.repo_id != repo_id or chat.user_id != user.id:
                 raise NotFoundError(f"No session {body.session_id} for repository {repo_id}")
             repo_id_str = str(chat.repo_id)
             snapshot_id_str = str(chat.snapshot_id)
@@ -59,6 +62,9 @@ async def chat_repo(
         )
         history, retrieval_query = prepared.history, prepared.retrieval_query
     else:
+        async with runtime.session_factory() as session:
+            if not await repo.is_repo_member(session, user.id, repo_id):
+                raise NotFoundError(f"No repository {repo_id}")
         resolved = await resolve_indexed_repo(runtime, str(repo_id))
         repo_id_str = str(resolved.repo_id)
         snapshot_id_str = str(resolved.snapshot_id)
