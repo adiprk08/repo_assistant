@@ -7,11 +7,9 @@ import { streamSse, type JobOut } from "@/lib/api";
 const STAGES = ["cloning", "scanning", "parsing", "enriching", "embedding", "indexing", "ready"];
 
 export function JobProgress({
-  apiKey,
   repoId,
   onReady,
 }: {
-  apiKey: string;
   repoId: string;
   onReady: () => void;
 }) {
@@ -22,7 +20,6 @@ export function JobProgress({
     const controller = new AbortController();
     let settled = false;
     streamSse(
-      apiKey,
       `/repos/${repoId}/job/stream`,
       null,
       {
@@ -44,7 +41,7 @@ export function JobProgress({
       if (!settled && !controller.signal.aborted) setError(String(e.message || e));
     });
     return () => controller.abort();
-  }, [apiKey, repoId, onReady]);
+  }, [repoId, onReady]);
 
   const stageIndex = job ? STAGES.indexOf(job.stage) : 0;
   const pct = Math.max(5, Math.round(((stageIndex + 1) / STAGES.length) * 100));

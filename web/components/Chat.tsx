@@ -19,11 +19,9 @@ interface Turn {
 }
 
 export function Chat({
-  apiKey,
   repo,
   onAuthError,
 }: {
-  apiKey: string;
   repo: RepoOut;
   onAuthError: () => void;
 }) {
@@ -41,13 +39,13 @@ export function Chat({
     setSessionId(null);
     setError(null);
     api
-      .createSession(apiKey, repo.id)
+      .createSession(repo.id)
       .then((s) => setSessionId(s.id))
       .catch((e) => {
         if (e instanceof ApiError && e.status === 401) onAuthError();
         else setError(String((e as Error).message));
       });
-  }, [apiKey, repo.id, onAuthError]);
+  }, [repo.id, onAuthError]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -65,7 +63,6 @@ export function Chat({
 
     try {
       await streamSse(
-        apiKey,
         `/repos/${repo.id}/chat`,
         { question, path, session_id: sessionId },
         {

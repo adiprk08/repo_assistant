@@ -1,39 +1,44 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { KeyGate } from "@/components/KeyGate";
+import { LoginGate } from "@/components/LoginGate";
 import { RepoSidebar } from "@/components/RepoSidebar";
 import { JobProgress } from "@/components/JobProgress";
 import { Chat } from "@/components/Chat";
-import { api, type RepoOut } from "@/lib/api";
-
-const KEY_STORAGE = "ra_api_key";
+import { api, ApiError, type RepoOut, type UserOut } from "@/lib/api";
 
 export default function Home() {
-  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [user, setUser] = useState<UserOut | null>(null);
   const [ready, setReady] = useState(false);
   const [repo, setRepo] = useState<RepoOut | null>(null);
 
   useEffect(() => {
-    setApiKey(localStorage.getItem(KEY_STORAGE));
-    setReady(true);
+    api
+      .me()
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setReady(true));
   }, []);
 
-  const saveKey = (key: string) => {
-    localStorage.setItem(KEY_STORAGE, key);
-    setApiKey(key);
-  };
-
-  const clearKey = useCallback(() => {
-    localStorage.removeItem(KEY_STORAGE);
-    setApiKey(null);
+  // A 401 anywhere means the session ended — drop back to the login gate.
+  const onAuthError = useCallback(() => {
+    setUser(null);
     setRepo(null);
   }, []);
 
-  const refreshRepo = useCallback(async () => {
-    if (!apiKey || !repo) return;
+  const signOut = useCallback(async () => {
     try {
-      const fresh = await api.getRepo(apiKey, repo.id);
+      await api.logout();
+    } catch {
+      // best-effort; clear locally regardless
+    }
+    onAuthError();
+  }, [onAuthError]);
+
+  const refreshRepo = useCallback(async () => {
+    if (!repo) return;
+    try {
+      const fresh = await api.getRepo(repo.id);
       setRepo({
         id: fresh.id,
         url: fresh.url,
@@ -41,26 +46,41 @@ export default function Home() {
         status: fresh.status,
         created_at: fresh.created_at,
       });
-    } catch {
-      // ignore transient errors; the sidebar poll will recover
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) onAuthError();
+      // otherwise ignore transient errors; the sidebar poll will recover
     }
-  }, [apiKey, repo]);
+  }, [repo, onAuthError]);
 
   if (!ready) return null;
-  if (!apiKey) return <KeyGate onSubmit={saveKey} />;
+  if (!user) return <LoginGate />;
 
   return (
     <div className="app">
       <div className="col">
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          {user.avatar_url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={user.avatar_url}
+              alt=""
+              width={24}
+              height={24}
+              style={{ borderRadius: "50%" }}
+            />
+          )}
+          <span className="small mono" style={{ flex: 1, marginLeft: 8 }}>
+            {user.login}
+          </span>
+          <button className="small" onClick={signOut}>
+            Sign out
+          </button>
+        </div>
         <RepoSidebar
-          apiKey={apiKey}
           selectedId={repo?.id ?? null}
           onSelect={setRepo}
-          onAuthError={clearKey}
+          onAuthError={onAuthError}
         />
-        <button className="small" onClick={clearKey}>
-          Sign out
-        </button>
       </div>
 
       <div>
@@ -72,14 +92,14 @@ export default function Home() {
             <h2 style={{ margin: 0, fontSize: 16 }}>
               {repo.url.replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "")}
             </h2>
-            <JobProgress apiKey={apiKey} repoId={repo.id} onReady={refreshRepo} />
+            <JobProgress repoId={repo.id} onReady={refreshRepo} />
             <span className="small muted">
               The worker must be running (<code>ra worker</code>) to process the job.
             </span>
           </div>
         )}
         {repo && repo.status === "ready" && (
-          <Chat apiKey={apiKey} repo={repo} onAuthError={clearKey} />
+          <Chat repo={repo} onAuthError={onAuthError} />
         )}
       </div>
     </div>

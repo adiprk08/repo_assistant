@@ -1,10 +1,18 @@
 // Typed client for the Repo Assistant API.
 //
-// SSE is consumed via fetch + a ReadableStream reader rather than EventSource,
-// because EventSource cannot set the `Authorization` header the API requires
-// (docs/adr/0017). The same parser drives job-progress and chat streams.
+// Auth is cookie-based (docs/adr/0023): every call goes to the same-origin
+// /api/* proxy with credentials, so the browser's session cookie authenticates
+// it. SSE is consumed via fetch + a ReadableStream reader (not EventSource), the
+// same parser driving job-progress and chat streams.
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000").replace(/\/$/, "");
+const API_BASE = "/api";
+
+export interface UserOut {
+  id: string;
+  login: string;
+  name: string | null;
+  avatar_url: string | null;
+}
 
 export interface RepoOut {
   id: string;
@@ -66,16 +74,12 @@ export class ApiError extends Error {
   }
 }
 
-function authHeaders(apiKey: string): Record<string, string> {
-  return { Authorization: `Bearer ${apiKey}` };
-}
-
-async function request<T>(apiKey: string, path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const resp = await fetch(`${API_BASE}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...authHeaders(apiKey),
       ...(init.headers || {}),
     },
   });
@@ -94,25 +98,30 @@ async function request<T>(apiKey: string, path: string, init: RequestInit = {}):
 }
 
 export const api = {
-  listRepos: (key: string) => request<RepoOut[]>(key, "/repos"),
-  getRepo: (key: string, id: string) =>
-    request<RepoOut & { active_snapshot: unknown; latest_job: JobOut | null }>(key, `/repos/${id}`),
-  registerRepo: (key: string, url: string, ref?: string, enrich = false) =>
-    request<{ repo: RepoOut; job: JobOut }>(key, "/repos", {
+  me: () => request<UserOut>("/auth/me"),
+  logout: () => request<void>("/auth/logout", { method: "POST" }),
+  listRepos: () => request<RepoOut[]>("/repos"),
+  getRepo: (id: string) =>
+    request<RepoOut & { active_snapshot: unknown; latest_job: JobOut | null }>(`/repos/${id}`),
+  registerRepo: (url: string, ref?: string, enrich = false) =>
+    request<{ repo: RepoOut; job: JobOut }>("/repos", {
       method: "POST",
       body: JSON.stringify({ url, ref: ref || null, enrich }),
     }),
-  createSession: (key: string, repoId: string, title?: string) =>
-    request<SessionOut>(key, `/repos/${repoId}/sessions`, {
+  createSession: (repoId: string, title?: string) =>
+    request<SessionOut>(`/repos/${repoId}/sessions`, {
       method: "POST",
       body: JSON.stringify({ title: title || null }),
     }),
-  search: (key: string, repoId: string, query: string) =>
-    request<{ commit: string; results: SearchHit[] }>(key, `/repos/${repoId}/search`, {
+  search: (repoId: string, query: string) =>
+    request<{ commit: string; results: SearchHit[] }>(`/repos/${repoId}/search`, {
       method: "POST",
       body: JSON.stringify({ query, limit: 12 }),
     }),
 };
+
+// The URL that starts the GitHub OAuth login (a full-page navigation).
+export const LOGIN_URL = `${API_BASE}/auth/github/login`;
 
 export interface SseHandlers {
   onEvent: (event: string, data: unknown) => void;
@@ -121,7 +130,6 @@ export interface SseHandlers {
 
 // POST a request and parse the SSE response body (event:/data: frames).
 export async function streamSse(
-  apiKey: string,
   path: string,
   body: unknown,
   handlers: SseHandlers,
@@ -129,10 +137,10 @@ export async function streamSse(
 ): Promise<void> {
   const resp = await fetch(`${API_BASE}${path}`, {
     method,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
-      ...authHeaders(apiKey),
     },
     body: method === "GET" ? undefined : JSON.stringify(body),
     signal: handlers.signal,

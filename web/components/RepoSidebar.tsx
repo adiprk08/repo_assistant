@@ -4,12 +4,10 @@ import { useEffect, useState } from "react";
 import { api, ApiError, type RepoOut } from "@/lib/api";
 
 export function RepoSidebar({
-  apiKey,
   selectedId,
   onSelect,
   onAuthError,
 }: {
-  apiKey: string;
   selectedId: string | null;
   onSelect: (repo: RepoOut) => void;
   onAuthError: () => void;
@@ -21,7 +19,7 @@ export function RepoSidebar({
 
   async function refresh() {
     try {
-      setRepos(await api.listRepos(apiKey));
+      setRepos(await api.listRepos());
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) onAuthError();
       else setError(String((e as Error).message));
@@ -33,14 +31,14 @@ export function RepoSidebar({
     const t = setInterval(refresh, 4000); // reflect indexing status changes
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiKey]);
+  }, []);
 
   async function register(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      const { repo } = await api.registerRepo(apiKey, url.trim());
+      const { repo } = await api.registerRepo(url.trim());
       setUrl("");
       await refresh();
       onSelect(repo);
