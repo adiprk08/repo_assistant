@@ -12,11 +12,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from repo_assistant.api.auth import secured
+from repo_assistant.api.auth import SESSION_COOKIE, secured
 from repo_assistant.api.errors import register_error_handlers
 from repo_assistant.api.ratelimit import NoopRateLimiter, RateLimiter, RedisRateLimiter
-from repo_assistant.api.routers import chat, repos, search, sessions, webhooks
+from repo_assistant.api.routers import auth, chat, repos, search, sessions, webhooks
 from repo_assistant.cli.runtime import Runtime, build_runtime
 from repo_assistant.core import metrics
 from repo_assistant.core.config import Settings, get_settings
@@ -91,6 +92,24 @@ def create_app(
             )
             return response
 
+    # CSRF: cookie-authenticated mutations must originate from an allowed origin.
+    # Bearer-key callers (CLI/MCP) carry no session cookie and are skipped — a
+    # custom Authorization header can't be forged cross-site anyway. SameSite=Lax
+    # on the cookie is the first line of defense; this is belt-and-suspenders.
+    _csrf_safe = frozenset({"GET", "HEAD", "OPTIONS"})
+    _allowed_origins = frozenset(settings.cors_allow_origins) | {settings.web_base_url}
+
+    @app.middleware("http")
+    async def _csrf_guard(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if request.method not in _csrf_safe and SESSION_COOKIE in request.cookies:
+            origin = request.headers.get("origin")
+            if origin is not None and origin not in _allowed_origins:
+                return JSONResponse(
+                    status_code=403,
+                    content={"error": "CSRFError", "detail": "Cross-origin request refused."},
+                )
+        return await call_next(request)
+
     # Traces export over OTLP only when enabled; otherwise this is a no-op.
     configure_tracing(settings)
     instrument_app(app, settings)
@@ -116,12 +135,15 @@ def create_app(
         body, content_type = metrics.render_latest()
         return Response(content=body, media_type=content_type)
 
-    # Every data route requires a valid API key + is rate-limited; /health stays open.
+    # Every data route requires an authenticated user + is rate-limited; /health
+    # stays open. The auth router is unauthenticated (login/callback/logout are the
+    # way in; /auth/me guards itself with current_user).
     protected = [Depends(secured)]
+    app.include_router(auth.router)
     app.include_router(repos.router, dependencies=protected)
     app.include_router(sessions.router, dependencies=protected)
     app.include_router(search.router, dependencies=protected)
     app.include_router(chat.router, dependencies=protected)
-    # Webhooks authenticate by HMAC signature, not API key — no `secured` dependency.
+    # Webhooks authenticate by HMAC signature, not user session — no `secured` dependency.
     app.include_router(webhooks.router)
     return app

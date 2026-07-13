@@ -11,6 +11,17 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class UserOut(BaseModel):
+    """The signed-in account (docs/adr/0023)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    login: str
+    name: str | None
+    avatar_url: str | None
+
+
 class RepoCreate(BaseModel):
     url: str = Field(description="GitHub repository URL.")
     ref: str | None = Field(default=None, description="Branch, tag, or full commit SHA.")

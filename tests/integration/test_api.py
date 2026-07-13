@@ -564,6 +564,217 @@ async def test_repos_and_sessions_are_isolated_per_user(
         await _drop_key(runtime, id_b)
 
 
+# --- web auth: cookies, OAuth, logout, CSRF (docs/adr/0023) ------------------
+
+
+async def _mint_session(runtime: _FakeRuntime) -> tuple[str, uuid.UUID]:
+    """A logged-in browser session: a fresh user + web_session; returns the raw
+    cookie token and the user id."""
+    from repo_assistant.api.auth import new_session_token, session_expiry
+    from repo_assistant.storage.models import User
+
+    token, token_hash = new_session_token()
+    async with runtime.session_factory() as session:
+        user = User(login=f"web-{uuid.uuid4().hex[:8]}", name="Web", github_id=None)
+        session.add(user)
+        await session.flush()
+        await repo.create_web_session(
+            session,
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=session_expiry(runtime.settings),
+        )
+        await session.commit()
+        return token, user.id
+
+
+async def _drop_user(runtime: _FakeRuntime, user_id: uuid.UUID) -> None:
+    from sqlalchemy import delete
+
+    from repo_assistant.storage.models import ApiKey, User, UserRepo, WebSession
+
+    async with runtime.session_factory() as session:
+        for model in (WebSession, UserRepo, ApiKey):
+            await session.execute(delete(model).where(model.user_id == user_id))
+        await session.execute(delete(User).where(User.id == user_id))
+        await session.commit()
+
+
+class _FakeGitHubResponse:
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+
+    def json(self) -> dict:
+        return self._payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+class _FakeGitHubClient:
+    """Stands in for httpx.AsyncClient in the OAuth callback — no network."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    async def __aenter__(self) -> "_FakeGitHubClient":
+        return self
+
+    async def __aexit__(self, *args) -> None:
+        return None
+
+    async def post(self, url: str, **kwargs) -> _FakeGitHubResponse:
+        return _FakeGitHubResponse({"access_token": "gho_test"})
+
+    async def get(self, url: str, **kwargs) -> _FakeGitHubResponse:
+        return _FakeGitHubResponse(
+            {
+                "id": 424242,
+                "login": "octocat",
+                "name": "The Octocat",
+                "avatar_url": "https://avatars.example/octocat",
+            }
+        )
+
+
+async def test_session_cookie_authenticates(runtime: _FakeRuntime) -> None:
+    app = _build_app(runtime, _FakeQueue(), NoopRateLimiter())
+    token, user_id = await _mint_session(runtime)
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test", cookies={"ra_session": token}
+        ) as c:
+            assert (await c.get("/repos")).status_code == 200  # empty library
+            me = await c.get("/auth/me")
+            assert me.status_code == 200
+            assert me.json()["login"].startswith("web-")
+    finally:
+        await _drop_user(runtime, user_id)
+
+
+async def test_me_without_auth_is_401(unauth_client: httpx.AsyncClient) -> None:
+    assert (await unauth_client.get("/auth/me")).status_code == 401
+
+
+async def test_logout_revokes_the_session(runtime: _FakeRuntime) -> None:
+    app = _build_app(runtime, _FakeQueue(), NoopRateLimiter())
+    token, user_id = await _mint_session(runtime)
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            cookies={"ra_session": token},
+            headers={"Origin": "http://localhost:3000"},
+        ) as c:
+            assert (await c.post("/auth/logout")).status_code == 204
+        # A fresh client presenting the same token is no longer authenticated.
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test", cookies={"ra_session": token}
+        ) as c:
+            assert (await c.get("/auth/me")).status_code == 401
+    finally:
+        await _drop_user(runtime, user_id)
+
+
+async def test_expired_session_does_not_authenticate(runtime: _FakeRuntime) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from repo_assistant.api.auth import new_session_token
+    from repo_assistant.storage.models import User
+
+    app = _build_app(runtime, _FakeQueue(), NoopRateLimiter())
+    token, token_hash = new_session_token()
+    async with runtime.session_factory() as session:
+        user = User(login=f"exp-{uuid.uuid4().hex[:8]}")
+        session.add(user)
+        await session.flush()
+        await repo.create_web_session(
+            session,
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=1),
+        )
+        await session.commit()
+        user_id = user.id
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test", cookies={"ra_session": token}
+        ) as c:
+            assert (await c.get("/auth/me")).status_code == 401
+    finally:
+        await _drop_user(runtime, user_id)
+
+
+async def test_csrf_blocks_cross_origin_cookie_mutation(runtime: _FakeRuntime) -> None:
+    app = _build_app(runtime, _FakeQueue(), NoopRateLimiter())
+    token, user_id = await _mint_session(runtime)
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test", cookies={"ra_session": token}
+        ) as c:
+            evil = await c.post(
+                "/repos", json={"url": "x"}, headers={"Origin": "http://evil.example"}
+            )
+            assert evil.status_code == 403
+            assert evil.json()["error"] == "CSRFError"
+            # Same-origin is allowed through to the route (bad URL -> 400, not 403).
+            ok = await c.post(
+                "/repos", json={"url": "not-a-url"}, headers={"Origin": "http://localhost:3000"}
+            )
+            assert ok.status_code == 400
+    finally:
+        await _drop_user(runtime, user_id)
+
+
+async def test_oauth_login_requires_configuration(unauth_client: httpx.AsyncClient) -> None:
+    # No client id/secret configured by default -> login is unavailable.
+    resp = await unauth_client.get("/auth/github/login")
+    assert resp.status_code == 503
+
+
+async def test_oauth_callback_creates_user_and_session(runtime: _FakeRuntime, monkeypatch) -> None:
+    import repo_assistant.api.routers.auth as authmod
+
+    monkeypatch.setattr(runtime.settings, "github_oauth_client_id", "cid")
+    monkeypatch.setattr(runtime.settings, "github_oauth_client_secret", "csec")
+    monkeypatch.setattr(authmod, "_github_client", lambda: _FakeGitHubClient())
+
+    app = _build_app(runtime, _FakeQueue(), NoopRateLimiter())
+    transport = httpx.ASGITransport(app=app)
+    user_id: uuid.UUID | None = None
+    try:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test", cookies={"ra_oauth_state": "st8"}
+        ) as c:
+            resp = await c.get("/auth/github/callback", params={"code": "abc", "state": "st8"})
+        assert resp.status_code == 307  # redirect back to the web app
+        assert "ra_session=" in resp.headers.get("set-cookie", "")
+        async with runtime.session_factory() as session:
+            user = await repo.get_user_by_github_id(session, 424242)
+            assert user is not None
+            assert user.login == "octocat"
+            user_id = user.id
+    finally:
+        if user_id is not None:
+            await _drop_user(runtime, user_id)
+
+
+async def test_oauth_callback_rejects_bad_state(runtime: _FakeRuntime, monkeypatch) -> None:
+    monkeypatch.setattr(runtime.settings, "github_oauth_client_id", "cid")
+    monkeypatch.setattr(runtime.settings, "github_oauth_client_secret", "csec")
+    app = _build_app(runtime, _FakeQueue(), NoopRateLimiter())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", cookies={"ra_oauth_state": "real"}
+    ) as c:
+        resp = await c.get("/auth/github/callback", params={"code": "abc", "state": "forged"})
+    assert resp.status_code == 400
+
+
 async def test_rate_limit_returns_429(runtime: _FakeRuntime) -> None:
     app = _build_app(runtime, _FakeQueue(), InMemoryRateLimiter(limit=2, window_seconds=60))
     plaintext, key_id = await _mint_key(runtime)

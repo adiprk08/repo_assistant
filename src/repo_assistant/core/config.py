@@ -63,6 +63,16 @@ class Settings(BaseSettings):
     # Browser UI origins allowed by CORS (comma-separated in the env var).
     cors_allow_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
+    # Web auth via GitHub OAuth (docs/adr/0023). Both unset -> login is disabled
+    # and only API-key / local-user access works.
+    github_oauth_client_id: str | None = None
+    github_oauth_client_secret: str | None = None
+    # Where the browser app is served. OAuth returns the user here, and the GitHub
+    # callback URL is <web_base_url>/api/auth/github/callback (same-origin proxy).
+    web_base_url: str = "http://localhost:3000"
+    session_ttl_days: int = 14
+    session_cookie_secure: bool = False  # set True behind HTTPS in prod
+
     # GitHub webhook HMAC secret (docs/adr/0018). Unset -> the webhook rejects all.
     github_webhook_secret: str | None = None
 
