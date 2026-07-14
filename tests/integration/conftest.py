@@ -2,6 +2,7 @@
 (Postgres + Qdrant) to be running, and are skipped otherwise.
 """
 
+import asyncio
 import socket
 import subprocess
 import uuid
@@ -10,12 +11,15 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from repo_assistant.core.config import get_settings
 from repo_assistant.indexing.qdrant_index import QdrantVectorIndex
 from repo_assistant.ingestion.models import Acquisition
+from repo_assistant.storage import repositories as repo
 from repo_assistant.storage.db import make_engine, make_session_factory
+from repo_assistant.storage.models import Repo, UserRepo
 
 
 def _port_open(host: str, port: int) -> bool:
@@ -33,6 +37,35 @@ requires_stack = pytest.mark.skipif(
 @pytest.fixture
 def session_factory() -> async_sessionmaker[AsyncSession]:
     return make_session_factory(make_engine(get_settings()))
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _sweep_test_repo_residue() -> Iterator[None]:
+    """Integration tests register repos under ``test/*`` URLs (the ``local_repo``
+    fixture) and drive real ingestion, leaving repo/snapshot/chunk rows in the dev
+    Postgres. Sweep them once at the end of the session so residue can't pile up
+    across runs. Postgres-only: test vectors go to throwaway Qdrant collections
+    (``qdrant_index``) or a FakeVectorIndex, never the shared collection.
+    """
+    yield
+    if not _STACK_UP:
+        return
+    asyncio.run(_purge_test_repos())
+
+
+async def _purge_test_repos() -> None:
+    factory = make_session_factory(make_engine(get_settings()))
+    async with factory() as session:
+        repo_ids = (
+            (await session.execute(select(Repo.id).where(Repo.url.like("%/test/%"))))
+            .scalars()
+            .all()
+        )
+        for repo_id in repo_ids:
+            # delete_repo_rows leaves user_repos to the caller; strip it first.
+            await session.execute(delete(UserRepo).where(UserRepo.repo_id == repo_id))
+            await repo.delete_repo_rows(session, repo_id)
+        await session.commit()
 
 
 @pytest_asyncio.fixture
