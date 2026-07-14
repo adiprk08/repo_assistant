@@ -730,9 +730,15 @@ async def test_csrf_blocks_cross_origin_cookie_mutation(runtime: _FakeRuntime) -
         await _drop_user(runtime, user_id)
 
 
-async def test_oauth_login_requires_configuration(unauth_client: httpx.AsyncClient) -> None:
-    # No client id/secret configured by default -> login is unavailable.
-    resp = await unauth_client.get("/auth/github/login")
+async def test_oauth_login_requires_configuration(runtime: _FakeRuntime, monkeypatch) -> None:
+    # Without a client id/secret, login is unavailable. Clear them explicitly so
+    # the assertion holds even when the dev .env has real OAuth creds configured.
+    monkeypatch.setattr(runtime.settings, "github_oauth_client_id", None)
+    monkeypatch.setattr(runtime.settings, "github_oauth_client_secret", None)
+    app = _build_app(runtime, _FakeQueue(), NoopRateLimiter())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        resp = await c.get("/auth/github/login")
     assert resp.status_code == 503
 
 

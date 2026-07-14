@@ -35,6 +35,10 @@ Two forks shaped the design and were decided with the user:
   each user's **library** over it. Registering an already-indexed repo adds a
   membership **instantly** — no re-index — honouring the embedding-cache/"re-index
   cost ~zero" ethos. Chat sessions are inherently personal (`chat_sessions.user_id`).
+  Outside the browser, `ra library add|remove|list [--user <login>]` manages this
+  membership directly over the shared index (default: the `local` user; `--user`
+  targets an existing signed-in user — e.g. to seed their library with repos that
+  were indexed before they had an account).
 
 - **Access control at the route boundary, denials as 404.** `current_user`
   resolves identity from **either** the session cookie **or** a Bearer API key.
@@ -84,8 +88,10 @@ Two forks shaped the design and were decided with the user:
   / `_SECRET`, callback `<web_base_url>/api/auth/github/callback`); unset ⇒ login
   is unavailable (503) though API-key/local access still works.
 - Data is now owned: existing pre-auth repos/sessions have a null owner and are in
-  nobody's library. There is **no legacy-claim step** — a user re-adds a repo URL
-  and gets an instant membership over the existing index; old sessions stay hidden.
+  nobody's library. There is **no automatic legacy-claim step** — in the browser a
+  user re-adds a repo URL and gets an instant membership over the existing index;
+  from the CLI, `ra library add <url> --user <login>` does the same without a
+  re-index. Old sessions stay hidden either way.
 - `chat_sessions.user_id` and `api_keys.user_id` are **nullable** for those legacy
   rows; new rows always carry an owner.
 - **Amends ADR-0016**: API keys are now user-scoped and rate limiting keys off the

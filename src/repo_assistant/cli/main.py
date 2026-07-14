@@ -195,6 +195,134 @@ async def _apikey_revoke(key_id: str) -> None:
         raise typer.Exit(code=_fail(f"No active key with id {key_id}."))
 
 
+library_app = typer.Typer(
+    name="library",
+    help="Manage a user's repository library over the shared index (docs/adr/0023).",
+    no_args_is_help=True,
+)
+app.add_typer(library_app)
+
+
+@library_app.command("add")
+def library_add(
+    repo: str = typer.Argument(..., help="Repository URL or id of an already-indexed repo."),
+    user: str | None = typer.Option(
+        None, "--user", help="GitHub login to add it for (default: the local user)."
+    ),
+) -> None:
+    """Add an already-indexed repo to a user's library (no re-index; idempotent)."""
+    asyncio.run(_library_add(repo, user))
+
+
+@library_app.command("remove")
+def library_remove(
+    repo: str = typer.Argument(..., help="Repository URL or id of an already-indexed repo."),
+    user: str | None = typer.Option(
+        None, "--user", help="GitHub login to remove it from (default: the local user)."
+    ),
+) -> None:
+    """Remove a repo from a user's library. The shared index is left intact."""
+    asyncio.run(_library_remove(repo, user))
+
+
+@library_app.command("list")
+def library_list(
+    user: str | None = typer.Option(
+        None, "--user", help="GitHub login to list (default: the local user)."
+    ),
+) -> None:
+    """List the repos in a user's library."""
+    asyncio.run(_library_list(user))
+
+
+async def _resolve_library_user(session, login: str | None):
+    """The target of a ``ra library`` command: the named GitHub user, or the
+    ``local`` user by default. Real users are only created by GitHub sign-in, so
+    an unknown ``--user`` is an error rather than a silent create."""
+    from repo_assistant.storage import repositories as repo
+
+    if login is None:
+        return await repo.get_or_create_local_user(session)
+    user = await repo.get_user_by_login(session, login)
+    if user is None:
+        raise NotFoundError(f"No user with login {login!r}. They must sign in with GitHub first.")
+    return user
+
+
+async def _library_add(identifier: str, login: str | None) -> None:
+    from repo_assistant.cli.runtime import build_runtime, resolve_indexed_repo
+    from repo_assistant.storage import repositories as repo
+
+    runtime = build_runtime()
+    try:
+        try:
+            resolved = await resolve_indexed_repo(runtime, identifier)
+        except NotFoundError as exc:
+            raise typer.Exit(code=_fail(str(exc))) from exc
+        async with runtime.session_factory() as session:
+            try:
+                user = await _resolve_library_user(session, login)
+            except NotFoundError as exc:
+                raise typer.Exit(code=_fail(str(exc))) from exc
+            already = await repo.is_repo_member(session, user.id, resolved.repo_id)
+            await repo.add_user_repo(session, user.id, resolved.repo_id)
+            await session.commit()
+    finally:
+        await runtime.aclose()
+
+    verb = "already in" if already else "added to"
+    typer.secho(f"\n{resolved.url} {verb} {user.login}'s library.", fg=typer.colors.GREEN)
+
+
+async def _library_remove(identifier: str, login: str | None) -> None:
+    from repo_assistant.cli.runtime import build_runtime, resolve_indexed_repo
+    from repo_assistant.storage import repositories as repo
+
+    runtime = build_runtime()
+    try:
+        try:
+            resolved = await resolve_indexed_repo(runtime, identifier)
+        except NotFoundError as exc:
+            raise typer.Exit(code=_fail(str(exc))) from exc
+        async with runtime.session_factory() as session:
+            try:
+                user = await _resolve_library_user(session, login)
+            except NotFoundError as exc:
+                raise typer.Exit(code=_fail(str(exc))) from exc
+            removed = await repo.remove_user_repo(session, user.id, resolved.repo_id)
+            await session.commit()
+    finally:
+        await runtime.aclose()
+
+    if removed:
+        typer.secho(f"\nRemoved {resolved.url} from {user.login}'s library.", fg=typer.colors.GREEN)
+    else:
+        typer.echo(f"\n{resolved.url} was not in {user.login}'s library.")
+
+
+async def _library_list(login: str | None) -> None:
+    from repo_assistant.cli.runtime import build_runtime
+    from repo_assistant.storage import repositories as repo
+
+    runtime = build_runtime()
+    try:
+        async with runtime.session_factory() as session:
+            try:
+                user = await _resolve_library_user(session, login)
+            except NotFoundError as exc:
+                raise typer.Exit(code=_fail(str(exc))) from exc
+            repos = await repo.list_repos_for_user(session, user.id)
+    finally:
+        await runtime.aclose()
+
+    if not repos:
+        typer.echo(f"{user.login}'s library is empty. Add one with `ra library add <url>`.")
+        return
+    typer.secho(f"{user.login}'s library ({len(repos)}):", bold=True)
+    for r in repos:
+        typer.echo(f"  {r.id}  {r.url}")
+
+
 @app.command()
 def eval(
     datasets_dir: str = typer.Option("evals/datasets", "--datasets", help="Golden dataset dir."),
