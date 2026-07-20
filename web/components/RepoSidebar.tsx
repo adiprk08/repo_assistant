@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError, type RepoOut } from "@/lib/api";
+import { AlertIcon, PlusIcon } from "@/components/icons";
+
+function shortRepo(url: string) {
+  return url.replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "");
+}
 
 export function RepoSidebar({
   selectedId,
@@ -51,31 +56,52 @@ export function RepoSidebar({
   }
 
   return (
-    <div className="panel col">
-      <h2 style={{ margin: 0, fontSize: 16 }}>Repositories</h2>
-      <form className="col" onSubmit={register}>
+    <div className="panel col" style={{ flex: 1 }}>
+      <form className="col" onSubmit={register} style={{ gap: 8 }}>
+        <label className="section-label" htmlFor="repo-url">
+          Index a repository
+        </label>
         <input
+          id="repo-url"
           placeholder="https://github.com/owner/repo"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
         />
         <button className="primary" type="submit" disabled={busy || !url.trim()}>
-          {busy ? "Registering…" : "Index a repo"}
+          {busy ? (
+            "Registering…"
+          ) : (
+            <>
+              <PlusIcon size={16} />
+              Add repository
+            </>
+          )}
         </button>
       </form>
-      {error && <div className="banner small">{error}</div>}
-      <div className="col" style={{ gap: 6 }}>
-        {repos.length === 0 && <span className="muted small">No repositories yet.</span>}
+
+      {error && (
+        <div className="banner small">
+          <AlertIcon size={15} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="col" style={{ gap: 8 }}>
+        <span className="section-label">Your library</span>
+        {repos.length === 0 && (
+          <span className="muted small">No repositories yet — add one above.</span>
+        )}
         {repos.map((r) => (
           <button
             key={r.id}
             className={`repo-item${r.id === selectedId ? " selected" : ""}`}
             onClick={() => onSelect(r)}
+            aria-pressed={r.id === selectedId}
           >
-            <span className="mono small" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-              {r.url.replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "")}
-            </span>
-            <span className={`pill${r.status === "ready" ? " ready" : r.status === "failed" ? " failed" : ""}`}>
+            <span className="mono small repo-name">{shortRepo(r.url)}</span>
+            <span
+              className={`pill ${r.status}`}
+            >
               {r.status}
             </span>
           </button>

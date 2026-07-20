@@ -5,7 +5,12 @@ import { LoginGate } from "@/components/LoginGate";
 import { RepoSidebar } from "@/components/RepoSidebar";
 import { JobProgress } from "@/components/JobProgress";
 import { Chat } from "@/components/Chat";
+import { ChatIcon, SignOutIcon, SparkIcon } from "@/components/icons";
 import { api, ApiError, type RepoOut, type UserOut } from "@/lib/api";
+
+function shortRepo(url: string) {
+  return url.replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "");
+}
 
 export default function Home() {
   const [user, setUser] = useState<UserOut | null>(null);
@@ -58,23 +63,36 @@ export default function Home() {
   return (
     <div className="app">
       <div className="col">
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          {user.avatar_url && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={user.avatar_url}
-              alt=""
-              width={24}
-              height={24}
-              style={{ borderRadius: "50%" }}
-            />
-          )}
-          <span className="small mono" style={{ flex: 1, marginLeft: 8 }}>
-            {user.login}
-          </span>
-          <button className="small" onClick={signOut}>
-            Sign out
-          </button>
+        <div className="panel row" style={{ justifyContent: "space-between", padding: "12px 14px" }}>
+          <div className="brand">
+            <div className="brand-mark">
+              <SparkIcon size={19} />
+            </div>
+            <div>
+              <div className="brand-name">Repo Assistant</div>
+              <div className="brand-sub">Cited code Q&amp;A</div>
+            </div>
+          </div>
+          <div className="row" style={{ gap: 6 }}>
+            {user.avatar_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={user.avatar_url}
+                alt={`${user.login} avatar`}
+                width={26}
+                height={26}
+                style={{ borderRadius: "50%", border: "1px solid var(--border-strong)" }}
+              />
+            )}
+            <button
+              className="icon-btn ghost"
+              onClick={signOut}
+              aria-label={`Sign out ${user.login}`}
+              title={`Sign out (${user.login})`}
+            >
+              <SignOutIcon size={16} />
+            </button>
+          </div>
         </div>
         <RepoSidebar
           selectedId={repo?.id ?? null}
@@ -85,12 +103,20 @@ export default function Home() {
 
       <div>
         {!repo && (
-          <div className="panel muted">Select or register a repository to start chatting.</div>
+          <div className="panel empty" style={{ minHeight: "70dvh" }}>
+            <ChatIcon size={34} className="empty-icon" />
+            <div>
+              <div style={{ fontWeight: 600, color: "var(--text)" }}>No repository selected</div>
+              <p className="small muted" style={{ margin: "4px 0 0" }}>
+                Pick one from your library, or index a new repo to start chatting.
+              </p>
+            </div>
+          </div>
         )}
         {repo && repo.status !== "ready" && (
           <div className="panel col">
-            <h2 style={{ margin: 0, fontSize: 16 }}>
-              {repo.url.replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "")}
+            <h2 className="chat-title" style={{ fontSize: 15 }}>
+              {shortRepo(repo.url)}
             </h2>
             <JobProgress repoId={repo.id} onReady={refreshRepo} />
             <span className="small muted">

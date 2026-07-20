@@ -48,13 +48,30 @@ export function JobProgress({
 
   if (error) return <div className="banner">{error}</div>;
   return (
-    <div className="col">
+    <div className="col" style={{ gap: 10 }}>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <span className="small muted">Indexing…</span>
-        <span className="small mono">{job?.stage || "queued"}</span>
+        <span className="small mono" style={{ color: "var(--accent)" }}>{job?.stage || "queued"}</span>
       </div>
-      <div className="progress-track">
+      <div
+        className="progress-track"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="Indexing progress"
+      >
         <div className="progress-fill" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="stage-list">
+        {STAGES.filter((s) => s !== "ready").map((s, i) => (
+          <span
+            key={s}
+            className={`stage-chip${i < stageIndex ? " done" : i === stageIndex ? " active" : ""}`}
+          >
+            {s}
+          </span>
+        ))}
       </div>
       {job?.progress && Object.keys(job.progress).length > 0 && (
         <div className="small muted mono">
