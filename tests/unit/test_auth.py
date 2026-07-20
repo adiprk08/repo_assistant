@@ -46,3 +46,28 @@ async def test_in_memory_limiter_is_per_identity() -> None:
     await limiter.check("key-b")  # different identity, own budget
     with pytest.raises(RateLimitError):
         await limiter.check("key-a")
+
+
+# --- secure cookies by default in prod (docs/adr/0024) -----------------------
+
+
+def test_secure_cookies_default_on_in_prod() -> None:
+    from repo_assistant.core.config import Settings
+
+    assert Settings(environment="prod").secure_cookies is True
+
+
+def test_secure_cookies_default_off_outside_prod() -> None:
+    from repo_assistant.core.config import Settings
+
+    assert Settings(environment="dev").secure_cookies is False
+    assert Settings(environment="test").secure_cookies is False
+
+
+def test_secure_cookies_explicit_override_wins() -> None:
+    from repo_assistant.core.config import Settings
+
+    # An operator can force it on in a non-prod env (TLS proxy in staging)...
+    assert Settings(environment="dev", session_cookie_secure=True).secure_cookies is True
+    # ...or off in prod (documented escape hatch, e.g. terminating elsewhere).
+    assert Settings(environment="prod", session_cookie_secure=False).secure_cookies is False

@@ -25,6 +25,12 @@ _GITHUB_URL = re.compile(
 # a `git clone --branch` target, so it needs a fetch + checkout instead.
 _COMMIT_SHA = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
 
+# Wall-clock ceiling for a network git operation (clone/fetch). A hostile or merely
+# huge remote must not be able to pin a worker forever (docs/adr/0024).
+CLONE_TIMEOUT_SECONDS = 300.0
+# Local, non-network git calls (rev-parse, ls-files) are fast; bound them tightly.
+_LOCAL_TIMEOUT_SECONDS = 60.0
+
 
 def _looks_like_sha(ref: str) -> bool:
     return _COMMIT_SHA.fullmatch(ref) is not None
@@ -42,15 +48,52 @@ def normalize_github_url(url: str) -> str:
     return f"https://github.com/{match['owner']}/{match['repo']}.git"
 
 
-async def _run_git(*args: str, cwd: str | None = None) -> str:
+# Hardening flags applied to every git invocation (docs/adr/0024):
+#   core.symlinks=false  - never materialize a tracked symlink as a real link, so
+#                          nothing downstream can be tricked into following one out
+#                          of the clone. Git writes the link target as file text.
+#   protocol.file.allow / submodule ... - a repo cannot drag in content from an
+#                          arbitrary or local transport during clone/checkout.
+_HARDENING = (
+    "-c",
+    "core.symlinks=false",
+    "-c",
+    "protocol.file.allow=never",
+    "-c",
+    "submodule.recurse=false",
+)
+
+
+async def _run_git(
+    *args: str,
+    cwd: str | None = None,
+    timeout: float | None = None,  # noqa: ASYNC109 - deadline must reach the subprocess kill
+) -> str:
+    """Run git with the hardening flags, bounded by ``timeout`` seconds.
+
+    A hostile remote can otherwise stall a clone indefinitely and pin a worker
+    (docs/adr/0024); the process is killed and reported as an IngestionError.
+
+    ASYNC109 suggests the caller wrap this in ``asyncio.timeout()`` instead, but a
+    cancelled task would leave the git child process alive — the timeout has to be
+    handled here so the process is actually reaped.
+    """
     proc = await asyncio.create_subprocess_exec(
         "git",
+        *_HARDENING,
         *args,
         cwd=cwd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise IngestionError(
+            f"git {args[0] if args else ''} timed out after {timeout:.0f}s"
+        ) from None
     if proc.returncode != 0:
         raise IngestionError(
             f"git {' '.join(args)} failed (exit {proc.returncode}): "
@@ -71,7 +114,12 @@ def _authenticated_url(clone_url: str, token: str | None) -> str:
 
 
 async def clone(
-    url: str, dest: str, ref: str | None = None, *, token: str | None = None
+    url: str,
+    dest: str,
+    ref: str | None = None,
+    *,
+    token: str | None = None,
+    timeout: float = CLONE_TIMEOUT_SECONDS,  # noqa: ASYNC109 - forwarded to _run_git
 ) -> Acquisition:
     """Blobless-clone ``url`` into ``dest`` and check out ``ref`` (or the default branch).
 
@@ -88,18 +136,37 @@ async def clone(
     remote = _authenticated_url(clone_url, token)
 
     if ref and _looks_like_sha(ref):
-        await _run_git("clone", "--filter=blob:none", "--quiet", "--no-checkout", remote, dest)
-        await _run_git("fetch", "--filter=blob:none", "--quiet", "origin", ref, cwd=dest)
-        await _run_git("checkout", "--quiet", ref, cwd=dest)
+        await _run_git(
+            "clone",
+            "--filter=blob:none",
+            "--quiet",
+            "--no-checkout",
+            remote,
+            dest,
+            timeout=timeout,
+        )
+        await _run_git(
+            "fetch", "--filter=blob:none", "--quiet", "origin", ref, cwd=dest, timeout=timeout
+        )
+        await _run_git("checkout", "--quiet", ref, cwd=dest, timeout=timeout)
     else:
         args = ["clone", "--filter=blob:none", "--quiet"]
         if ref:
             args += ["--branch", ref]
         args += [remote, dest]
-        await _run_git(*args)
+        await _run_git(*args, timeout=timeout)
 
-    commit_sha = (await _run_git("rev-parse", "HEAD", cwd=dest)).strip()
-    resolved_ref = ref or (await _run_git("rev-parse", "--abbrev-ref", "HEAD", cwd=dest)).strip()
+    commit_sha = (
+        await _run_git("rev-parse", "HEAD", cwd=dest, timeout=_LOCAL_TIMEOUT_SECONDS)
+    ).strip()
+    resolved_ref = (
+        ref
+        or (
+            await _run_git(
+                "rev-parse", "--abbrev-ref", "HEAD", cwd=dest, timeout=_LOCAL_TIMEOUT_SECONDS
+            )
+        ).strip()
+    )
     logger.info("clone complete", commit_sha=commit_sha, ref=resolved_ref)
 
     return Acquisition(url=clone_url, ref=resolved_ref, commit_sha=commit_sha, root_path=dest)
@@ -111,5 +178,5 @@ async def list_tracked_files(root: str) -> list[str]:
     Using ``git ls-files`` means .gitignore is honored for free (ignored files are
     simply never tracked), and we get stable forward-slash paths on every OS.
     """
-    out = await _run_git("ls-files", "-z", cwd=root)
+    out = await _run_git("ls-files", "-z", cwd=root, timeout=_LOCAL_TIMEOUT_SECONDS)
     return [str(PurePosixPath(p)) for p in out.split("\0") if p]

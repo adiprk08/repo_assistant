@@ -1,5 +1,7 @@
 """Clone ref handling: branch/tag vs commit SHA (git commands mocked, no network)."""
 
+import asyncio
+
 import pytest
 
 from repo_assistant.core.errors import IngestionError
@@ -35,7 +37,11 @@ def git_calls(monkeypatch) -> list[list[str]]:
     """Record git argv lists and return canned output for rev-parse."""
     calls: list[list[str]] = []
 
-    async def fake_run_git(*args: str, cwd: str | None = None) -> str:
+    async def fake_run_git(
+        *args: str,
+        cwd: str | None = None,
+        timeout: float | None = None,  # noqa: ASYNC109 - mirrors _run_git
+    ) -> str:
         calls.append(list(args))
         if args[:1] == ("rev-parse",) and "HEAD" in args and "--abbrev-ref" not in args:
             return f"{_SHA}\n"
@@ -79,3 +85,76 @@ async def test_clone_fetches_and_checks_out_commit_sha(git_calls) -> None:
     # The resolved acquisition is pinned to the requested commit.
     assert acq.commit_sha == _SHA
     assert acq.ref == _SHA
+
+
+# --- untrusted-remote hardening (docs/adr/0024) ------------------------------
+
+
+async def test_run_git_applies_hardening_flags(monkeypatch) -> None:
+    """Every git invocation disables symlink materialization and foreign transports."""
+    seen: dict[str, tuple] = {}
+
+    class _Proc:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return b"", b""
+
+    async def fake_exec(*argv: str, **kwargs):
+        seen["argv"] = argv
+        return _Proc()
+
+    monkeypatch.setattr(git.asyncio, "create_subprocess_exec", fake_exec)
+    await git._run_git("status", timeout=5.0)
+
+    argv = seen["argv"]
+    assert argv[0] == "git"
+    assert "core.symlinks=false" in argv
+    assert "protocol.file.allow=never" in argv
+    assert "submodule.recurse=false" in argv
+    # Hardening precedes the subcommand, as git requires for -c.
+    assert argv.index("core.symlinks=false") < argv.index("status")
+
+
+async def test_run_git_times_out_and_kills_the_process(monkeypatch) -> None:
+    """A stalled remote must not pin a worker forever."""
+    killed: list[bool] = []
+
+    class _HangingProc:
+        returncode = None
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            await asyncio.sleep(30)
+            return b"", b""
+
+        def kill(self) -> None:
+            killed.append(True)
+
+        async def wait(self) -> int:
+            return -9
+
+    async def fake_exec(*argv: str, **kwargs):
+        return _HangingProc()
+
+    monkeypatch.setattr(git.asyncio, "create_subprocess_exec", fake_exec)
+    with pytest.raises(IngestionError, match="timed out"):
+        await git._run_git("clone", timeout=0.05)
+    assert killed == [True]
+
+
+async def test_clone_bounds_every_git_call_with_a_timeout(monkeypatch) -> None:
+    """clone() must not leave any git call unbounded."""
+    timeouts: list[float | None] = []
+
+    async def fake_run_git(
+        *args: str,
+        cwd: str | None = None,
+        timeout: float | None = None,  # noqa: ASYNC109 - mirrors _run_git
+    ) -> str:
+        timeouts.append(timeout)
+        return f"{_SHA}\n" if args[:1] == ("rev-parse",) else ""
+
+    monkeypatch.setattr(git, "_run_git", fake_run_git)
+    await clone("https://github.com/pallets/click", "/tmp/x", ref=_SHA)
+
+    assert timeouts and all(t is not None and t > 0 for t in timeouts)

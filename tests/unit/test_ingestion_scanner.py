@@ -4,11 +4,15 @@ Uses a throwaway `git init` tree rather than mocks so we exercise the actual
 `git ls-files` path — including .gitignore honoring — the way production will.
 """
 
+import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
+from repo_assistant.ingestion import filters
 from repo_assistant.ingestion.models import Acquisition, FileCategory, SkipReason
-from repo_assistant.ingestion.scanner import scan
+from repo_assistant.ingestion.scanner import _escapes_root, scan
 
 
 def _git(cwd: Path, *args: str) -> None:
@@ -104,3 +108,80 @@ async def test_scan_skips_oversized_files(tmp_path: Path) -> None:
 
     assert {f.path for f in result.files} == {"small.py"}
     assert any(s.path == "big.py" and s.reason is SkipReason.TOO_LARGE for s in result.skipped)
+
+
+# --- untrusted-tree boundary (docs/adr/0024) ---------------------------------
+
+
+def test_escapes_root_rejects_paths_outside_the_clone(tmp_path: Path) -> None:
+    """A path that resolves outside the clone is refused even without a symlink."""
+    root = (tmp_path / "repo").resolve()
+    root.mkdir()
+    outside = tmp_path / "elsewhere" / "secret.txt"
+    outside.parent.mkdir()
+    outside.write_text("s3cret", encoding="utf-8")
+
+    assert _escapes_root(root / "app.py", root) is False
+    assert _escapes_root(root / ".." / "elsewhere" / "secret.txt", root) is True
+
+
+async def test_scan_refuses_symlink_escaping_the_repo(tmp_path: Path) -> None:
+    """A tracked symlink must never be followed out of the clone.
+
+    Without the guard, `read_bytes()` follows the link and pulls a host file into
+    the index, where it becomes retrievable through chat.
+    """
+    secret = tmp_path / "outside_secret.txt"
+    secret.write_text("HOST_ONLY_SECRET_VALUE", encoding="utf-8")
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    try:
+        os.symlink(secret, root / "notes.md")
+    except (OSError, NotImplementedError):  # Windows without symlink privilege
+        pytest.skip("platform cannot create symlinks")
+
+    acq = _init_repo(root, {"src/app.py": b"x = 1\n"})
+    result = await scan(acq)
+
+    assert {f.path for f in result.files} == {"src/app.py"}
+    assert any(s.path == "notes.md" and s.reason is SkipReason.SYMLINK for s in result.skipped)
+
+
+async def test_scan_skips_anything_the_guard_flags(tmp_path: Path, monkeypatch) -> None:
+    """The guard is wired into the scan loop before the read.
+
+    Complements the symlink test above, which can only run where the OS allows
+    creating symlinks — this asserts the loop honors the guard on every platform.
+    """
+    import repo_assistant.ingestion.scanner as scanner_mod
+
+    monkeypatch.setattr(
+        scanner_mod, "_escapes_root", lambda abs_path, root: abs_path.name == "notes.md"
+    )
+    acq = _init_repo(tmp_path, {"src/app.py": b"x = 1\n", "notes.md": b"# notes\n"})
+    result = await scan(acq)
+
+    assert {f.path for f in result.files} == {"src/app.py"}
+    assert any(s.path == "notes.md" and s.reason is SkipReason.SYMLINK for s in result.skipped)
+
+
+async def test_scan_enforces_repo_file_ceiling(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(filters, "MAX_REPO_FILES", 2)
+    acq = _init_repo(
+        tmp_path,
+        {"a.py": b"a = 1\n", "b.py": b"b = 1\n", "c.py": b"c = 1\n", "d.py": b"d = 1\n"},
+    )
+    result = await scan(acq)
+
+    assert len(result.files) == 2
+    assert sum(1 for s in result.skipped if s.reason is SkipReason.REPO_LIMIT) == 2
+
+
+async def test_scan_enforces_repo_byte_ceiling(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(filters, "MAX_REPO_BYTES", 20)
+    acq = _init_repo(tmp_path, {"a.py": b"a = 1\n", "big.py": b"x = 1\n" * 50})
+    result = await scan(acq)
+
+    assert {f.path for f in result.files} == {"a.py"}
+    assert any(s.path == "big.py" and s.reason is SkipReason.REPO_LIMIT for s in result.skipped)

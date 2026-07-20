@@ -38,10 +38,30 @@ def _classify_skip(rel_path: str) -> SkipReason | None:
     return None
 
 
+def _escapes_root(abs_path: Path, root: Path) -> bool:
+    """True if ``abs_path`` is a symlink or otherwise resolves outside ``root``.
+
+    Repository content is untrusted: a tracked symlink with an innocuous name
+    (``notes.md -> /etc/passwd``) would otherwise be *followed* by the read below,
+    pulling host files into the index. Only regular files inside the clone are
+    indexable, so the link is refused rather than resolved.
+
+    Sync (not async) so the filesystem probes stay off the event loop's hot path
+    and out of the async-lint surface; callers are I/O-bound already.
+    """
+    if abs_path.is_symlink():
+        return True
+    try:
+        return not abs_path.resolve().is_relative_to(root.resolve())
+    except OSError:  # unresolvable path (broken link chain, permission, cycle)
+        return True
+
+
 async def scan(acquisition: Acquisition) -> ScanResult:
     """Produce the set of files to index (and a reasoned list of what was skipped)."""
     root = Path(acquisition.root_path)
     result = ScanResult()
+    total_bytes = 0
 
     for rel_path in await list_tracked_files(acquisition.root_path):
         skip_reason = _classify_skip(rel_path)
@@ -50,6 +70,10 @@ async def scan(acquisition: Acquisition) -> ScanResult:
             continue
 
         abs_path = root / rel_path
+        # Refuse anything that would read outside the clone (docs/adr/0024).
+        if _escapes_root(abs_path, root):
+            result.skipped.append(SkippedFile(path=rel_path, reason=SkipReason.SYMLINK))
+            continue
         try:
             raw = abs_path.read_bytes()
         except (OSError, ValueError):
@@ -72,6 +96,16 @@ async def scan(acquisition: Acquisition) -> ScanResult:
             result.skipped.append(SkippedFile(path=rel_path, reason=SkipReason.SECRET))
             continue
 
+        # Whole-repo ceilings: past either one, keep recording *why* files were
+        # dropped but stop growing the indexable set (docs/adr/0024).
+        if (
+            len(result.files) >= filters.MAX_REPO_FILES
+            or total_bytes + len(raw) > filters.MAX_REPO_BYTES
+        ):
+            result.skipped.append(SkippedFile(path=rel_path, reason=SkipReason.REPO_LIMIT))
+            continue
+        total_bytes += len(raw)
+
         language, category = classify(rel_path)
         result.files.append(
             ScannedFile(
@@ -87,6 +121,7 @@ async def scan(acquisition: Acquisition) -> ScanResult:
         "scan complete",
         commit_sha=acquisition.commit_sha,
         kept=len(result.files),
+        bytes=total_bytes,
         skipped=len(result.skipped),
     )
     return result

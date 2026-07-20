@@ -28,6 +28,8 @@ class SkipReason(StrEnum):
     SECRET = "secret"
     EMPTY = "empty"
     IGNORED = "ignored"
+    SYMLINK = "symlink"
+    REPO_LIMIT = "repo_limit"
 
 
 @dataclass(frozen=True, slots=True)

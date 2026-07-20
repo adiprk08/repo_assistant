@@ -27,3 +27,4 @@ Format: Status / Context / Decision / Alternatives considered / Consequences. AD
 | [0021](0021-security-pass.md) | Security pass: content secret scanning, read-only-agent injection posture (tested), pip-audit in CI | Accepted |
 | [0022](0022-mcp-server.md) | MCP server exposing the read-only index tools to IDE agents (stdio, one repo per launch) | Accepted |
 | [0023](0023-web-auth-and-user-accounts.md) | Web auth: GitHub OAuth, server-side cookie sessions, per-user library over the shared index, same-origin proxy | Accepted |
+| [0024](0024-untrusted-tree-and-deployment-hardening.md) | Untrusted working-tree boundary (symlink escape), git hardening + timeouts, whole-repo ceilings, store-level tenancy, no default datastore credentials | Accepted |

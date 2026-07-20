@@ -31,10 +31,15 @@ class QdrantVectorIndex(VectorIndex):
         self._collection = collection
 
     @classmethod
-    def from_url(cls, url: str, collection: str = "chunks") -> "QdrantVectorIndex":
+    def from_url(
+        cls, url: str, collection: str = "chunks", *, api_key: str | None = None
+    ) -> "QdrantVectorIndex":
         # check_compatibility disabled: we rely only on the stable collection/point/query
         # API. Aligning client and server versions is a Phase 5 hardening task.
-        return cls(AsyncQdrantClient(url=url, check_compatibility=False), collection=collection)
+        return cls(
+            AsyncQdrantClient(url=url, api_key=api_key, check_compatibility=False),
+            collection=collection,
+        )
 
     async def aclose(self) -> None:
         await self._client.close()
@@ -138,20 +143,40 @@ class QdrantVectorIndex(VectorIndex):
 
     async def fetch(self, *, repo_id: str, ids: list[str]) -> list[SearchResult]:
         """Retrieve points by id (score 0.0) — used to materialize chunks that a
-        non-vector channel (e.g. symbol lookup) surfaced."""
+        non-vector channel (e.g. symbol lookup) surfaced.
+
+        Ids are re-checked against the tenant payload: callers pass ids sourced from
+        snapshot-scoped queries, but tenancy must hold at the store boundary so a
+        future caller can't read across repos by id alone (docs/adr/0024).
+        """
         if not ids:
             return []
         points = await self._client.retrieve(
             collection_name=self._collection, ids=list(ids), with_payload=True
         )
-        return [SearchResult(id=str(p.id), score=0.0, payload=p.payload or {}) for p in points]
+        return [
+            SearchResult(id=str(p.id), score=0.0, payload=p.payload or {})
+            for p in points
+            if (p.payload or {}).get(_TENANT_KEY) == repo_id
+        ]
 
     async def delete(self, *, repo_id: str, ids: list[str]) -> None:
+        """Delete points by id, constrained to the tenant so an id from another
+        repo can never be removed through this path (docs/adr/0024)."""
         if not ids:
             return
         await self._client.delete(
             collection_name=self._collection,
-            points_selector=models.PointIdsList(points=list(ids)),
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.HasIdCondition(has_id=cast(Any, list(ids))),
+                        models.FieldCondition(
+                            key=_TENANT_KEY, match=models.MatchValue(value=repo_id)
+                        ),
+                    ]
+                )
+            ),
         )
 
     async def copy_points(

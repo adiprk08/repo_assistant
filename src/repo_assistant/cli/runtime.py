@@ -49,7 +49,9 @@ def build_runtime(settings: Settings | None = None) -> Runtime:
     return Runtime(
         settings=settings,
         session_factory=make_session_factory(make_engine(settings)),
-        vector_index=QdrantVectorIndex.from_url(settings.qdrant_url),
+        vector_index=QdrantVectorIndex.from_url(
+            settings.qdrant_url, api_key=settings.qdrant_api_key
+        ),
     )
 
 

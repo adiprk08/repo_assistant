@@ -17,6 +17,10 @@ htmlcov/
 .env.*
 !.env.example
 
+# Local session handoff notes — carry credentials/config in prose and are never
+# committed by convention; ignored so `git add -A` can't leak them.
+handoff.md
+
 # Data / runtime artifacts (anchored to repo root so they don't match the
 # src/repo_assistant/storage package)
 /data/

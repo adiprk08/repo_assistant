@@ -28,12 +28,30 @@ push to `main`.
 ```dotenv
 RA_ANTHROPIC_API_KEY=sk-ant-...
 RA_VOYAGE_API_KEY=pa-...
+
+# Required — datastore credentials. The compose file fails to start if any is
+# missing, so a deployment can never ship with a well-known password
+# (docs/adr/0024). Generate each with: openssl rand -hex 24
+RA_PG_PASSWORD=...
+RA_QDRANT_API_KEY=...
+RA_REDIS_PASSWORD=...
+
+# Web auth (docs/adr/0023). Point these at the real browser origin:
+RA_WEB_BASE_URL=https://your.domain
+RA_CORS_ALLOW_ORIGINS=https://your.domain
+RA_GITHUB_OAUTH_CLIENT_ID=...
+RA_GITHUB_OAUTH_CLIENT_SECRET=...
+
 # Optional — private repos (docs/adr/0020) and webhooks (docs/adr/0018):
 RA_TOKEN_ENCRYPTION_KEY=...        # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 RA_GITHUB_APP_ID=...
 RA_GITHUB_APP_PRIVATE_KEY=...      # PEM contents
 RA_GITHUB_WEBHOOK_SECRET=...
 ```
+
+`RA_ENVIRONMENT=prod` (set by the compose file) turns on the `Secure` flag for
+session cookies, so the stack must be served over TLS. Override with
+`RA_SESSION_COOKIE_SECURE=false` only if you knowingly terminate elsewhere.
 
 The compose file overrides the storage DSNs to the in-network service names
 (`postgres`, `qdrant`, `redis`), so the same `.env` works for local CLI use
@@ -78,4 +96,10 @@ Prometheus scrapes `GET /metrics` on the API. Logs are JSON (`RA_LOG_FORMAT=json
 - The web UI (`web/`) is deployed separately (any static/Next.js host) pointing
   `NEXT_PUBLIC_API_BASE` at the API; it is intentionally not in this compose file.
 - TLS termination (a reverse proxy such as Caddy/nginx in front of `api`) is left
-  to the operator.
+  to the operator. It is **required** in practice: `RA_ENVIRONMENT=prod` marks the
+  session cookie `Secure`, and API keys are bearer tokens that must not cross a
+  plaintext hop.
+- Postgres, Qdrant, and Redis publish **no host ports** — they are reachable only
+  on the compose network, and each additionally requires a credential
+  ([ADR-0024](adr/0024-untrusted-tree-and-deployment-hardening.md)). Only `api`
+  (`:8000`) is exposed; put it behind the proxy rather than on the open internet.

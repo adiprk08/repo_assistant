@@ -3,12 +3,22 @@
 # (RA_ANTHROPIC_API_KEY, RA_VOYAGE_API_KEY, and optionally the GitHub App / webhook
 # / token-encryption keys); the service-name DSNs below override any localhost
 # values in that .env.
+#
+# Datastore credentials are REQUIRED from that .env — there are no defaults, so a
+# deployment can never silently ship with a well-known password (docs/adr/0024):
+#   RA_PG_PASSWORD=...        # openssl rand -hex 24
+#   RA_QDRANT_API_KEY=...     # openssl rand -hex 24
+#   RA_REDIS_PASSWORD=...     # openssl rand -hex 24
+# None of these services publish a host port; they are reachable only on the
+# compose network. The credentials are defence in depth for when that stops
+# being true (a second stack, a shared network, a compromised container).
 name: repo-assistant-prod
 
 x-app-env: &app-env
-  RA_POSTGRES_DSN: postgresql+asyncpg://repo_assistant:repo_assistant@postgres:5432/repo_assistant
+  RA_POSTGRES_DSN: postgresql+asyncpg://repo_assistant:${RA_PG_PASSWORD:?set RA_PG_PASSWORD in .env}@postgres:5432/repo_assistant
   RA_QDRANT_URL: http://qdrant:6333
-  RA_REDIS_DSN: redis://redis:6379/0
+  RA_QDRANT_API_KEY: ${RA_QDRANT_API_KEY:?set RA_QDRANT_API_KEY in .env}
+  RA_REDIS_DSN: redis://:${RA_REDIS_PASSWORD:?set RA_REDIS_PASSWORD in .env}@redis:6379/0
   RA_LOG_FORMAT: json
   RA_ENVIRONMENT: prod
 
@@ -17,7 +27,7 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: repo_assistant
-      POSTGRES_PASSWORD: repo_assistant
+      POSTGRES_PASSWORD: ${RA_PG_PASSWORD:?set RA_PG_PASSWORD in .env}
       POSTGRES_DB: repo_assistant
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -29,11 +39,14 @@ services:
 
   qdrant:
     image: qdrant/qdrant:v1.15.1
+    environment:
+      QDRANT__SERVICE__API_KEY: ${RA_QDRANT_API_KEY:?set RA_QDRANT_API_KEY in .env}
     volumes:
       - qdrant_data:/qdrant/storage
 
   redis:
     image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${RA_REDIS_PASSWORD:?set RA_REDIS_PASSWORD in .env}"]
     volumes:
       - redis_data:/data
 

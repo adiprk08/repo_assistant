@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     )
     redis_dsn: str = "redis://localhost:6379/0"
     qdrant_url: str = "http://localhost:6333"
+    # Qdrant API key. Unset for a local, network-isolated dev Qdrant; required by
+    # the prod compose, which turns Qdrant's own auth on (docs/adr/0024).
+    qdrant_api_key: str | None = None
 
     anthropic_api_key: str | None = None
     voyage_api_key: str | None = None
@@ -71,7 +74,10 @@ class Settings(BaseSettings):
     # callback URL is <web_base_url>/api/auth/github/callback (same-origin proxy).
     web_base_url: str = "http://localhost:3000"
     session_ttl_days: int = 14
-    session_cookie_secure: bool = False  # set True behind HTTPS in prod
+    # Secure-by-default in prod: a session cookie must not travel over plaintext
+    # HTTP. Left off for dev/test so http://localhost still works; an operator can
+    # still force either way with RA_SESSION_COOKIE_SECURE (docs/adr/0024).
+    session_cookie_secure: bool | None = None
 
     # GitHub webhook HMAC secret (docs/adr/0018). Unset -> the webhook rejects all.
     github_webhook_secret: str | None = None
@@ -87,6 +93,17 @@ class Settings(BaseSettings):
     token_encryption_key: str | None = None  # Fernet key; encrypts stored tokens at rest
     github_app_id: str | None = None
     github_app_private_key: str | None = None  # PEM contents (or a path to a .pem)
+
+    @property
+    def secure_cookies(self) -> bool:
+        """Whether to set ``Secure`` on the session cookie.
+
+        Defaults to on in prod (where TLS is expected) and off elsewhere, unless
+        ``RA_SESSION_COOKIE_SECURE`` states otherwise explicitly.
+        """
+        if self.session_cookie_secure is not None:
+            return self.session_cookie_secure
+        return self.environment == "prod"
 
     @field_validator("cors_allow_origins", mode="before")
     @classmethod

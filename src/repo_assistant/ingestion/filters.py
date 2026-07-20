@@ -12,6 +12,13 @@ import re
 # real source files comfortably fit (see docs/ARCHITECTURE.md §4).
 MAX_FILE_BYTES = 1_000_000
 
+# Whole-repository ceilings. The per-file cap above bounds any single read, but not
+# the aggregate: without these, one enormous (or maliciously generated) repository
+# drives unbounded embedding spend and index growth (docs/adr/0024). Indexing stops
+# accepting files once either ceiling is reached; what was kept is still indexed.
+MAX_REPO_FILES = 20_000
+MAX_REPO_BYTES = 500_000_000
+
 # Directory names that never contain first-party source worth indexing.
 _EXCLUDED_DIRS: frozenset[str] = frozenset(
     {
